@@ -1,1 +1,243 @@
 # dsh-github-agents-proxy
+
+English | [中文](README.md)
+
+GitHub App proxy for DeepSeek Harness. Configure one App credential set once;
+Agents then use `gh`/`git` through the App installation token, so pushes are
+attributed to the App's bot identity. The token is refreshed on demand.
+
+This stage owns only the token and `gh`/`git` authentication. Commit-author
+rewriting, commit message handling, and PR attribution are later steps.
+
+## What it does
+
+- Adds `refresh_ghapp_token` and `check_ghapp_token_status`.
+- Injects one fixed-prefix token snapshot into runtime context at conversation
+  start, when the token crosses the refresh threshold, and after a successful
+  refresh.
+- Stores the installation token in a private file (`0600` where the platform
+  supports it) and refreshes it under a cross-process file lock with a
+  double-check after the lock.
+- Runs no daemon, timer, scheduled task, or background job. Nothing refreshes
+  unless an Agent calls the tool; status is evaluated during ordinary prompt
+  assembly.
+
+The plugin does not intercept or wrap `gh`. It owns the token and tells the
+Agent where the token file is; the caller launches `gh` with that token (see
+[Use the token with gh](#use-the-token-with-gh)).
+
+## Install
+
+The package ships a bundle patch, so a profile can load it by package name:
+
+```json
+{
+  "dsh": {
+    "profile": {
+      "bundles": ["@deepseek-ai/dsh-base", "@dynastxu/dsh-github-agents-proxy"]
+    }
+  }
+}
+```
+
+The patch inserts the `github-agents-proxy` row. Configure that row in the
+profile's `cordis.patch.yml`:
+
+```yaml
+- id: github-agents-proxy
+  config:
+    appId: 123456
+    installationId: 98765432
+    privateKeyPath: /home/me/.dsh/github-app.pem
+```
+
+Set all three credential fields, or leave all of them out. A partial set fails
+at load with the missing field names.
+
+## Web settings page
+
+The browser half registers **Settings → GitHub App token**. It edits the
+active profile's volatile Config fields and writes them through the profile's
+`cordis.patch.yml`, so no hand-editing is required:
+
+- App ID and Installation ID
+- private-key source (file path or DSH credential reference) and value
+- token cache path, refresh threshold, and GitHub API base URL
+- whether the runtime status snapshot is injected
+
+Saving validates the positive IDs, key source, and URL, then submits through
+`ctx.configForms`. The Host receives `loader/volatile-update` and rebuilds the
+token manager, so the next tool call and status injection use the new values.
+The browser half loads with the Web client; restart the DSH Host after upgrading
+(and reload the page if needed) to see the page.
+
+## Configuration
+
+| Field | Default | Meaning |
+|---|---|---|
+| `appId` | required with credentials | GitHub App ID. Numbers and numeric strings are accepted. |
+| `installationId` | required with credentials | Installation ID for the repository set the Agent may use. |
+| `privateKeyPath` | — | PEM private-key path. Mutually exclusive with `privateKeyEnv`. |
+| `privateKeyEnv` | — | Credential reference resolved through `ctx.credentials`; falls back to the process environment when the credential service is absent. |
+| `tokenPath` | `<profile dir>/github-app-token.json` | Cached installation-token file. |
+| `refreshThresholdSeconds` | `300` | Refresh when less than this many seconds remain. `0` refreshes only an expired token. |
+| `apiBaseUrl` | `https://api.github.com` | GitHub API origin, including a GitHub Enterprise `api/v3` path when needed. |
+| `contextInjection` | `true` | Inject the runtime-context status snapshot. |
+| `configureGh` | `true` | Run `gh auth login --with-token` and `gh auth setup-git` after refresh so plain `gh`/`git` commands use the token. |
+
+### Keep the private key out of the repository
+
+`privateKeyPath` should point outside the checkout, or set
+`.dsh/github-app.pem` as an ignored local file. For DSH-managed storage, use
+`privateKeyEnv` and put the PEM in `$DSH_HOME/.credentials.yaml`:
+
+```yaml
+version: 1
+refs:
+  GITHUB_APP_PRIVATE_KEY: |
+    -----BEGIN RSA PRIVATE KEY-----
+    …
+    -----END RSA PRIVATE KEY-----
+```
+
+Then configure `privateKeyEnv: GITHUB_APP_PRIVATE_KEY`. The credential service
+resolves the reference at each refresh, so rotating the key takes effect on the
+next call without restarting DSH.
+
+The private key is never written to the token file, tool result, or context
+snapshot.
+
+## Tools
+
+### `refresh_ghapp_token`
+
+Use it when:
+
+- `gh` returns `401`, `Bad credentials`, or otherwise says the token is invalid;
+- the injected status says `missing`, `expired`, or warns that the token is
+  about to expire;
+- a workflow needs a new installation token immediately.
+
+The tool takes the refresh lock, re-reads the cached token, and returns
+`reason=token_still_valid` without contacting GitHub when the token has more
+than the configured threshold left. If another Agent refreshed while this call
+waited for the lock, the second call sees the new expiry and does not make a
+duplicate GitHub request.
+
+`force: true` skips the expiry check. On a 401, call the tool without `force`
+first; if it returns `token_still_valid` while `gh` still reports 401, the token
+may have been revoked, so retry with `force: true`. Otherwise use `force` only
+when a still-valid token must be replaced.
+
+Success:
+
+```json
+{ "ok": true, "refreshed": true, "expires_at": "2026-11-10T23:05:00Z", "expires_in_seconds": 3580, "token_file": "…/github-app-token.json" }
+```
+
+Still valid:
+
+```json
+{
+  "ok": false,
+  "reason": "token_still_valid",
+  "expires_at": "2026-11-10T23:05:00Z",
+  "expires_in_seconds": 1800,
+  "hint": "The cached token is still valid. If gh still returns 401, call refresh_ghapp_token with force=true to replace a revoked token."
+}
+```
+
+A failed exchange and missing configuration are separate structured results:
+`reason=refresh_failed` carries a bounded message and actionable hint;
+`reason=not_configured` lists `appId`, `installationId`, and
+`privateKeyPath`/`privateKeyEnv`.
+
+### `check_ghapp_token_status`
+
+Reads the cached file without calling GitHub. It returns `valid`, `expiring`,
+`expired`, `missing`, `invalid`, or `unconfigured`, plus `expires_at`,
+`remaining`, `needs_refresh`, and the token file path. Use it when the status
+snapshot is absent or a workflow needs a fresh local reading.
+
+## Runtime-context snapshot
+
+One fixed-prefix block is injected at the first prompt assembly and again only
+when the state changes:
+
+```text
+[github-app-token] status=valid, expires_at=2026-11-10T23:05:00Z, remaining=28m2s, token_file=…/github-app-token.json
+```
+
+Inside the threshold:
+
+```text
+[github-app-token] status=valid, expires_at=2026-11-10T23:05:00Z, remaining=1m52s, token_file=…/github-app-token.json
+WARN: The github-app-token is about to expire. Use refresh_ghapp_token to refresh it
+```
+
+Missing, expired, invalid, and unconfigured states add one actionable hint
+line. The `remaining` value is the value at the instant the snapshot was
+created; identical text is not re-injected on later steps. The Agent loop's
+runtime-context projection performs the de-duplication, so a long turn does not
+accumulate one status message per step.
+
+## Use the token with gh
+
+After a successful refresh the plugin runs `gh auth login --with-token` and
+`gh auth setup-git`, so plain `gh` commands use the token. DSH's shell executor
+strips credential-shaped variables inherited from the Host process, so setting
+`GH_TOKEN` in the Host does not reach bash. The token file remains available as
+a manual fallback:
+
+```sh
+TOKEN_FILE="${DSH_HOME:-$HOME/.dsh}/profiles/web/github-app-token.json"
+GH_TOKEN="$(jq -r .token "$TOKEN_FILE")" gh pr list
+```
+
+PowerShell:
+
+```powershell
+$token = (Get-Content "$env:DSH_HOME\profiles\web\github-app-token.json" | ConvertFrom-Json).token
+$env:GH_TOKEN = $token
+gh pr list
+```
+
+The snapshot includes `token_file`, so the Agent can locate the file without
+guessing the profile path. If a deployment already has a `gh` wrapper that
+reads this file, that wrapper can use the file directly and needs no command
+change.
+
+## Concurrency and security
+
+- Every refresh runs under `<tokenPath>.lock`; a second caller waits, re-reads
+  the token, and returns without a duplicate exchange when the first caller
+  already refreshed it.
+- The token file is replaced atomically through a same-directory temporary
+  file and `rename`.
+- The token file is created with owner-only permissions (`0600`). On Windows
+  the mode is best-effort, as with the rest of DSH's file stores.
+- An abandoned lock is reclaimed after two minutes; a normal lock wait is
+  bounded to ten seconds and honors tool cancellation.
+- No token, JWT, or private-key material is returned to the model. GitHub error
+  bodies are truncated before they become tool output.
+- `configureGh: true` runs `gh auth login --with-token` and `gh auth setup-git`,
+  which write gh's shared credential store and the global git
+  `credential.helper`; set it to `false` to avoid those side effects and set
+  `GH_TOKEN` from the token file manually.
+
+## Non-goals
+
+- No daemon, timer, watchdog, or scheduled refresh loop.
+- No dependency on a long-lived session or background job.
+- No interception or wrapping of `gh`.
+- No multi-App or multi-installation routing; one plugin instance manages one
+  installation.
+
+## Development
+
+```sh
+pnpm install
+pnpm test
+pnpm typecheck
+pnpm build
+```

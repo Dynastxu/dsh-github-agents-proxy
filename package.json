@@ -1,7 +1,7 @@
 {
   "name": "@dynastxu/dsh-github-agents-proxy",
   "version": "0.1.0",
-  "description": "Agents proxy plugin for DeepSeek Harness.",
+  "description": "GitHub App proxy for DeepSeek Harness agent changes: installation-token auth and gh/git attribution.",
   "keywords": [
     "deepseek",
     "harness",
@@ -9,6 +9,7 @@
     "dsh-plugin",
     "github",
     "github-app",
+    "proxy",
     "agent"
   ],
   "license": "MIT",
@@ -20,6 +21,7 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": "./lib/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -45,14 +47,28 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ]
+    },
     "manifestVersion": 1
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
   },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.19.0"
+  },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/schemastery": "^3.19.0",
     "@types/node": "^24.10.0",
+    "@types/react": "^18.3.31",
+    "react": "^18.3.1",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"

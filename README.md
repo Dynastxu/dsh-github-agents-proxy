@@ -1,1 +1,183 @@
 # dsh-github-agents-proxy
+
+[English](README.en.md) | 中文
+
+DeepSeek Harness 的 GitHub App 代理。只需配置一次 App 凭证，之后 Agent 通过 `gh`/`git` 访问 GitHub 时使用 Installation Token，使推送归属于该 App 的 bot 身份；令牌按需刷新。
+
+本阶段只负责令牌与 `gh`/`git` 认证。提交作者改写、提交信息处理和 PR 归属留到后续步骤。
+
+## 功能
+
+- 提供 `refresh_ghapp_token` 与 `check_ghapp_token_status` 两个工具。
+- 在对话开始时注入一次固定前缀的令牌快照；当令牌进入刷新阈值内、刷新成功后再次注入。
+- 把 Installation Token 存入私有文件（平台支持时权限为 `0600`），刷新时持有跨进程文件锁，拿到锁后再次检查过期时间。
+- 不启动守护进程、定时器、计划任务或后台 job。只有 Agent 调用刷新工具时才会访问 GitHub；状态在正常的提示词组装过程中计算。
+
+插件不拦截、不包装 `gh`。它负责管理令牌并告诉 Agent 令牌文件的位置；调用方用该令牌启动 `gh`（见[把令牌交给 gh](#把令牌交给-gh)）。
+
+## 安装
+
+包内带有 bundle patch，profile 按包名加载即可：
+
+```json
+{
+  "dsh": {
+    "profile": {
+      "bundles": ["@deepseek-ai/dsh-base", "@dynastxu/dsh-github-agents-proxy"]
+    }
+  }
+}
+```
+
+patch 会插入 `github-agents-proxy` 行。在 profile 的 `cordis.patch.yml` 中配置该行：
+
+```yaml
+- id: github-agents-proxy
+  config:
+    appId: 123456
+    installationId: 98765432
+    privateKeyPath: /home/me/.dsh/github-app.pem
+```
+
+三个凭证字段必须同时设置，或者全部留空。只设置一部分会在加载时直接失败，并列出缺少的字段。
+
+## Web 设置页
+
+插件的浏览器半注册在 **Settings → GitHub App 令牌**。页面直接编辑当前 profile 的 volatile Config 字段，保存后写入 profile 的 `cordis.patch.yml`，无需手工改文件：
+
+- App ID、Installation ID
+- 私钥来源（文件路径 / DSH 凭据引用）及对应值
+- 令牌缓存文件、刷新阈值、GitHub API 地址
+- 是否注入运行时状态快照
+
+保存时先校验正整数 ID、私钥来源和 URL，再通过 `ctx.configForms` 提交；Host 收到 `loader/volatile-update` 后重建令牌管理器，下一次工具调用和状态注入立即使用新配置。浏览器半随 Web 客户端加载，升级插件后需要重启 DSH Host（必要时再刷新页面）才会出现该设置页。
+
+## 配置
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `appId` | 配置凭证时必填 | GitHub App ID。接受数字或数字字符串。 |
+| `installationId` | 配置凭证时必填 | Agent 可使用的仓库集合对应的 Installation ID。 |
+| `privateKeyPath` | — | PEM 私钥路径。与 `privateKeyEnv` 互斥。 |
+| `privateKeyEnv` | — | 通过 `ctx.credentials` 解析的凭据引用；没有凭据服务时回退到进程环境变量。 |
+| `tokenPath` | `<profile 目录>/github-app-token.json` | 缓存的 Installation Token 文件。 |
+| `refreshThresholdSeconds` | `300` | 剩余时间小于该秒数时刷新。设为 `0` 时只刷新已过期令牌。 |
+| `apiBaseUrl` | `https://api.github.com` | GitHub API 地址；GitHub Enterprise 可带 `api/v3` 路径。 |
+| `contextInjection` | `true` | 是否注入运行时上下文状态快照。 |
+| `configureGh` | `true` | 刷新成功后执行 `gh auth login --with-token` 和 `gh auth setup-git`，让普通 `gh`/`git` 命令直接使用该令牌。 |
+
+### 私钥不要进入仓库
+
+`privateKeyPath` 应指向 checkout 之外的路径，或把 `.dsh/github-app.pem` 加入忽略列表。使用 DSH 托管存储时，改用 `privateKeyEnv`，把 PEM 放进 `$DSH_HOME/.credentials.yaml`：
+
+```yaml
+version: 1
+refs:
+  GITHUB_APP_PRIVATE_KEY: |
+    -----BEGIN RSA PRIVATE KEY-----
+    …
+    -----END RSA PRIVATE KEY-----
+```
+
+然后配置 `privateKeyEnv: GITHUB_APP_PRIVATE_KEY`。每次刷新都会重新解析该引用，因此轮换私钥后下一次调用即可生效，无需重启 DSH。
+
+私钥不会写入令牌文件、工具返回值或上下文快照。
+
+## 工具
+
+### `refresh_ghapp_token`
+
+在以下场景调用：
+
+- `gh` 返回 `401`、`Bad credentials` 或其他令牌无效错误；
+- 注入的状态显示 `missing`、`expired`，或警告令牌即将过期；
+- 工作流需要立即获得新的 Installation Token。
+
+工具先获取刷新锁，再重新读取缓存令牌。若剩余时间仍大于配置阈值，返回 `reason=token_still_valid`，不访问 GitHub。如果等待锁期间另一个 Agent 已完成刷新，第二个调用会看到新的过期时间，不会重复请求 GitHub。
+
+`force: true` 跳过过期判断。遇到 401 时先不带 `force` 调用；如果仍返回 `token_still_valid` 而 `gh` 继续报 401，说明令牌可能已被撤销，再带 `force: true` 重试。仅在确实需要立即替换仍有效的令牌时使用。
+
+成功：
+
+```json
+{ "ok": true, "refreshed": true, "expires_at": "2026-11-10T23:05:00Z", "expires_in_seconds": 3580, "token_file": "…/github-app-token.json" }
+```
+
+仍然有效：
+
+```json
+{
+  "ok": false,
+  "reason": "token_still_valid",
+  "expires_at": "2026-11-10T23:05:00Z",
+  "expires_in_seconds": 1800,
+  "hint": "The cached token is still valid. If gh still returns 401, call refresh_ghapp_token with force=true to replace a revoked token."
+}
+```
+
+刷新失败与未配置是两种独立的结构化结果：`reason=refresh_failed` 携带限长错误信息和处理建议；`reason=not_configured` 列出缺少的 `appId`、`installationId`、`privateKeyPath`/`privateKeyEnv`。
+
+### `check_ghapp_token_status`
+
+只读取本地缓存文件，不访问 GitHub。返回 `valid`、`expiring`、`expired`、`missing`、`invalid` 或 `unconfigured`，并附带 `expires_at`、`remaining`、`needs_refresh` 和令牌文件路径。状态快照缺失或工作流需要重新读取本地状态时使用。
+
+## 运行时上下文快照
+
+首次提示词组装时注入一次固定前缀的块，之后只在状态变化时再次注入：
+
+```text
+[github-app-token] status=valid, expires_at=2026-11-10T23:05:00Z, remaining=28m2s, token_file=…/github-app-token.json
+```
+
+进入刷新阈值内：
+
+```text
+[github-app-token] status=valid, expires_at=2026-11-10T23:05:00Z, remaining=1m52s, token_file=…/github-app-token.json
+WARN: The github-app-token is about to expire. Use refresh_ghapp_token to refresh it
+```
+
+缺失、过期、损坏和未配置状态会多一行处理提示。`remaining` 是快照创建瞬间的值；相同文本不会在后续步骤重复注入。去重由 Agent loop 的运行时上下文投影完成，因此长回合不会每步累积一条状态消息。
+
+## 把令牌交给 gh
+
+刷新成功后，插件会执行 `gh auth login --with-token` 和 `gh auth setup-git`，因此普通 `gh` 命令可直接使用。DSH 的 shell 执行器会擦除从宿主进程继承的凭证类环境变量，所以不能依赖宿主进程的 `GH_TOKEN`。如需手工兜底，也可以从令牌文件读取：
+
+```sh
+TOKEN_FILE="${DSH_HOME:-$HOME/.dsh}/profiles/web/github-app-token.json"
+GH_TOKEN="$(jq -r .token "$TOKEN_FILE")" gh pr list
+```
+
+PowerShell：
+
+```powershell
+$token = (Get-Content "$env:DSH_HOME\profiles\web\github-app-token.json" | ConvertFrom-Json).token
+$env:GH_TOKEN = $token
+gh pr list
+```
+
+快照包含 `token_file`，Agent 无需猜测 profile 路径。如果部署已有读取该文件的 `gh` wrapper，wrapper 可以直接使用该文件，命令无需改变。
+
+## 并发与安全
+
+- 每次刷新都在 `<tokenPath>.lock` 下执行；第二个调用等待、重新读取令牌，如果第一个调用已完成刷新就直接返回，不重复请求。
+- 令牌文件通过同目录临时文件和 `rename` 原子替换。
+- 令牌文件以仅所有者可读写的权限创建（`0600`）；Windows 上与 DSH 其他文件存储一样尽力而为。
+- 废弃的锁在两分钟后可被回收；正常等待锁最多十秒，并响应工具取消。
+- 不会把令牌、JWT 或私钥返回给模型。GitHub 错误响应体在进入工具输出前会截断。
+- `configureGh: true` 会运行 `gh auth login --with-token` 和 `gh auth setup-git`，写入 gh 的共享凭据存储和全局 git `credential.helper`；不需要自动登录时设为 `false`，此时用令牌文件手工设置 `GH_TOKEN`。
+
+## 非目标
+
+- 不实现守护进程、定时器、watchdog 或定时刷新循环。
+- 不依赖长生命周期会话或后台 job 维持令牌有效。
+- 不拦截、不包装 `gh`。
+- 不实现多 App 或多 Installation 路由；一个插件实例管理一个 Installation。
+
+## 开发
+
+```sh
+pnpm install
+pnpm test
+pnpm typecheck
+pnpm build
+```

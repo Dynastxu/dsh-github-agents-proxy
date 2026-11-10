@@ -133,3 +133,8 @@ dist
 
 # Build output
 /lib/
+
+# Local GitHub App credentials and token cache
+github-app-token.json
+github-app-token.json.lock
+github-app.pem
