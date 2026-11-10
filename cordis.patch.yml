@@ -1,0 +1,5 @@
+# Bundle layer applied when a profile lists @dynastxu/dsh-github-agents-proxy
+# in dsh.profile.bundles. Profiles override this row by targeting the same id.
+- insert:
+    - id: github-agents-proxy
+      name: '@dynastxu/dsh-github-agents-proxy'

@@ -1,0 +1,3 @@
+# Keep this checkout an independent pnpm project even though it sits inside
+# another pnpm workspace: pnpm resolves the nearest workspace root.
+packages: []
