@@ -154,6 +154,40 @@ export const CSS = `
   outline-offset: 1px;
 }
 .ghapp-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.ghapp-file-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.ghapp-file-control .ghapp-input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.ghapp-icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .ghapp-icon-button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+}
+.ghapp-icon-button:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+.ghapp-icon-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ghapp-select-wrap {
   position: relative;
   display: flex;

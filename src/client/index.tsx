@@ -9,12 +9,13 @@
  * @module @dynastxu/dsh-github-agents-proxy/client
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   credentialsComplete, credentialsEntered, draftFrom, draftWrites, EMPTY_DRAFT, validateDraft,
   type ConfigPathOp, type Draft, type GithubAppSettings,
 } from './draft.ts'
+import { readHostPathBridge, type HostPathBridge } from './file-picker.ts'
 import { en, NS, zh, type CopyKey, type Translate } from './locales.ts'
 import { describeTokenStatus, useTokenStatus, type TokenStatus } from './status.ts'
 import { CSS, STYLE_MARKER } from './styles.ts'
@@ -92,6 +93,16 @@ function TokenStatusLine({ status, t }: { readonly status: TokenStatus; readonly
       <span className="ghapp-status-dot" aria-hidden="true" />
       {presentation.text}
     </span>
+  )
+}
+
+/** Folder glyph of the PEM file chooser. */
+function FolderIcon(): ReactNode {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5Z" />
+    </svg>
   )
 }
 
@@ -185,6 +196,8 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   const status = useTokenStatus(statusRevision)
   /** Counts local edits so an in-flight save cannot discard a newer draft. */
   const editVersion = useRef(0)
+  const [pathBridge] = useState<HostPathBridge | undefined>(() => readHostPathBridge())
+  const fileInput = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!edited) setDraft(draftFrom(snapshot.value))
@@ -203,6 +216,16 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
     setDraft(current => ({ ...current, ...patch }))
     setEdited(true)
     setMessage(null)
+  }
+
+  /** Adopt the absolute path of a PEM chosen in the native file dialog. */
+  const chooseKeyFile = (event: ChangeEvent<HTMLInputElement>): void => {
+    const input = event.currentTarget
+    const file = input.files?.[0]
+    input.value = ''
+    if (file === undefined || pathBridge === undefined) return
+    const path = pathBridge.pathFor(file)
+    if (path !== '') update({ keyValue: path })
   }
 
   /** Persist every changed field of one draft in a single namespace mutation. */
@@ -302,10 +325,25 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
             <option value="ref">{t('keyRef')}</option>
           </SelectControl>
         </FieldRow>
-        <FieldRow label={t('keyValue')} hint={draft.keySource === 'path' ? t('keyValueHintPath') : t('keyValueHintRef')}
+        <FieldRow label={t('keyValue')}
+          hint={draft.keySource === 'ref'
+            ? t('keyValueHintRef')
+            : pathBridge === undefined ? t('keyValueHintPath') : t('keyValueHintPick')}
           note={partialCredentials ? t('keyPartialHint') : undefined}>
-          <input className="ghapp-input" aria-label={t('keyValue')}
-            value={draft.keyValue} disabled={!editable} onChange={event => update({ keyValue: event.currentTarget.value })} />
+          <div className="ghapp-file-control">
+            {pathBridge === undefined || draft.keySource === 'ref' ? null : (
+              <>
+                <button type="button" className="ghapp-icon-button" aria-label={t('chooseKeyFile')}
+                  title={t('chooseKeyFile')} disabled={!editable}
+                  onClick={() => { fileInput.current?.click() }}>
+                  <FolderIcon />
+                </button>
+                <input ref={fileInput} type="file" accept=".pem" hidden onChange={chooseKeyFile} />
+              </>
+            )}
+            <input className="ghapp-input" aria-label={t('keyValue')} title={draft.keyValue}
+              value={draft.keyValue} disabled={!editable} onChange={event => update({ keyValue: event.currentTarget.value })} />
+          </div>
         </FieldRow>
         <SwitchRow label={t('contextInjection')} hint={t('contextInjectionHint')}
           checked={draft.contextInjection} disabled={!editable}

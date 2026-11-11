@@ -50,7 +50,7 @@ patch 会插入 `github-agents-proxy` 行。在 profile 的 `cordis.patch.yml` �
 插件的浏览器半注册在 **Settings → GitHub App 令牌**。页面直接编辑当前 profile 的 volatile Config 字段，停止编辑约半秒后自动写入 profile 的 `cordis.patch.yml`，无需手工改文件，也没有保存按钮：
 
 - App ID、Installation ID
-- 私钥来源（文件路径 / DSH 凭据引用）及对应值
+- 私钥来源（文件路径 / DSH 凭据引用）及对应值；Desktop 应用中可用文件夹按钮直接选择 PEM 文件
 - 令牌缓存文件、刷新阈值、GitHub API 地址
 - 是否注入运行时状态快照
 

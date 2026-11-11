@@ -76,7 +76,8 @@ active profile's volatile Config fields and writes them into the profile's
 and no Save button are required:
 
 - App ID and Installation ID
-- private-key source (file path or DSH credential reference) and value
+- private-key source (file path or DSH credential reference) and value; the
+  Desktop app offers a folder button that picks the PEM file directly
 - token cache path, refresh threshold, and GitHub API base URL
 - whether the runtime status snapshot is injected
 
