@@ -38,7 +38,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "npm run build",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "workflow:ci": "pnpm run test && pnpm run build"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
