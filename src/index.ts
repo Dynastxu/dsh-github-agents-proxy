@@ -13,7 +13,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { readConfig, resolveConfig, type ConfigInput, type ResolvedConfig } from './config.ts'
-import { clearBotIdentity, installBotIdentity, resolveBotIdentity } from './bot.ts'
+import { clearBotIdentity, installBotIdentity, resolveBotIdentity, type BotIdentity } from './bot.ts'
+import { createCommitTool, type CommitRuntime, type SubprocessLike, type WorkingDirectoryLike } from './commit.ts'
+import { isGitCommitCommand } from './guard.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -33,6 +35,9 @@ export type { ConfigEnvironment, ConfigInput, ConfigValues, ResolvedConfig } fro
 export { ConfigurationError, DEFAULT_API_BASE_URL, DEFAULT_REFRESH_THRESHOLD_SECONDS, readConfig, resolveConfig } from './config.ts'
 export type { BotIdentity, BotIdentityOptions } from './bot.ts'
 export { clearBotIdentity, installBotIdentity, resolveBotIdentity } from './bot.ts'
+export type { CommitArgs, CommitFailure, CommitResult, CommitRuntime, CommitSuccess, SubprocessLike, WorkingDirectoryLike } from './commit.ts'
+export { createCommitTool } from './commit.ts'
+export { isGitCommitCommand } from './guard.ts'
 export type { CredentialsResolver, ManagerOptions } from './manager.ts'
 export { formatDuration, formatTokenSnapshot, GitHubAppTokenManager, hintForState, readPrivateKeyPem } from './manager.ts'
 export type { RefreshFailed, RefreshNotConfigured, RefreshResult, RefreshStillValid, RefreshSuccess, StatusResult, StoredToken, TokenSnapshot, TokenState } from './types.ts'
@@ -51,6 +56,18 @@ export const GITHUB_APP_TOKEN_CONTEXT_NAME = 'github-app-token:status'
 /** Placement between the working directory and sandbox-policy context. */
 export const GITHUB_APP_TOKEN_CONTEXT_ORDER = 106
 
+/** System-prompt section that tells Agents to use the dedicated commit tool. */
+export const GITHUB_APP_COMMIT_GUIDANCE_SECTION = 'github-agents-proxy:commit-guidance'
+
+/** Placement near the tool-specific system-prompt sections. */
+export const GITHUB_APP_COMMIT_GUIDANCE_ORDER = 4900
+
+const COMMIT_GUIDANCE = `# GitHub App commits
+
+Create commits with the \`commit_changes\` tool, not with a raw \`git commit\`. The tool commits as the GitHub App bot and appends the human user as a \`Co-authored-by\` trailer. It does not push; push the resulting branch separately.
+
+Do not use \`git commit\`, \`git commit --amend\`, or another command that creates a commit unless the user explicitly asks to bypass the tool.`
+
 /** Delay that coalesces the settings form's field writes into one reload. */
 const CONFIG_RELOAD_DEBOUNCE_MS = 100
 
@@ -68,6 +85,36 @@ interface PromptContextRegistry {
     readonly interpolate?: boolean
     readonly required?: boolean
   }): () => void
+  section(entry: {
+    readonly name: string
+    readonly order: number
+    readonly text: string | (() => string)
+    readonly interpolate?: boolean
+  }): () => void
+}
+
+/** The slice of the pre-execute event this plugin inspects. */
+interface PressedToolExecution {
+  readonly name: string
+  readonly arguments: unknown
+}
+
+type PressedToolDecision =
+  | { readonly kind: 'allow' }
+  | { readonly kind: 'deny'; readonly reason: string }
+  | { readonly kind: 'cancel' }
+  | { readonly kind: 'ask'; readonly reason?: string }
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Allow or deny one pending tool call before dispatch.
+     * @param exec - pending tool name and parsed arguments.
+     * @param next - continue to the next policy listener.
+     * @mode waterfall
+     */
+    'tools/pre-execute'(exec: PressedToolExecution, next: () => Promise<PressedToolDecision>): Promise<PressedToolDecision>
+  }
 }
 
 interface ProfileContext {
@@ -93,12 +140,14 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
   const credentials = ctx.get('credentials') as CredentialsResolver | undefined
   const botLifecycle = new AbortController()
   let installedBotKey: string | undefined
+  let currentBotIdentity: BotIdentity | undefined
   let syncGeneration = 0
 
   const syncBotIdentity = async (resolved: ResolvedConfig): Promise<void> => {
     const generation = ++syncGeneration
     if (!resolved.configured || resolved.appId === undefined) {
       installedBotKey = undefined
+      currentBotIdentity = undefined
       clearBotIdentity()
       return
     }
@@ -112,10 +161,12 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
       )
       if (generation !== syncGeneration) return
       installBotIdentity(identity)
+      currentBotIdentity = identity
       installedBotKey = key
     } catch (error: unknown) {
       if (generation !== syncGeneration) return
       installedBotKey = undefined
+      currentBotIdentity = undefined
       clearBotIdentity()
       ctx.logger?.warn(`github-agents-proxy: could not resolve the App bot identity; Agent commits will use the configured git identity: ${errorMessage(error)}`)
     }
@@ -150,6 +201,27 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
   if (tools === undefined) throw new Error('github-agents-proxy requires the tools service')
   ctx.effect(() => tools.register(createRefreshTool(source)))
   ctx.effect(() => tools.register(createStatusTool(source)))
+  const commitRuntime: CommitRuntime = {
+    currentBotIdentity: () => currentBotIdentity,
+    subprocess: () => ctx.get('subprocess') as SubprocessLike | undefined,
+    workingDirectory: () => ctx.get('workingDirectory') as WorkingDirectoryLike | undefined,
+  }
+  ctx.effect(() => tools.register(createCommitTool(commitRuntime)))
+
+  const gitCommitMatcher = (command: unknown): boolean =>
+    typeof command === 'string' && isGitCommitCommand(command)
+  ctx.effect(() => ctx.on('tools/pre-execute', async (exec, next) => {
+    if (!source.current().config.blockRawGitCommit) return next()
+    if (exec.name !== 'bash' && exec.name !== 'pwsh') return next()
+    const args = exec.arguments
+    if (typeof args !== 'object' || args === null) return next()
+    const command = Reflect.get(args, 'command')
+    if (!gitCommitMatcher(command)) return next()
+    return {
+      kind: 'deny',
+      reason: 'Direct git commit is disabled. Use the commit_changes tool so the commit is authored by the GitHub App bot and carries the user Co-authored-by trailer.',
+    }
+  }), 'github-agents-proxy: raw git commit guard')
 
   const systemPrompt = ctx.get('systemPrompt') as PromptContextRegistry | undefined
   if (systemPrompt === undefined) throw new Error('github-agents-proxy requires the systemPrompt service')
@@ -164,6 +236,11 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
       return source.current().snapshotFor(context.agent)
     },
   }))
+  ctx.effect(() => systemPrompt.section({
+    name: GITHUB_APP_COMMIT_GUIDANCE_SECTION,
+    order: GITHUB_APP_COMMIT_GUIDANCE_ORDER,
+    text: () => source.current().config.configured ? COMMIT_GUIDANCE : '',
+  }), 'github-agents-proxy: commit guidance')
 
   let reloadTimer: ReturnType<typeof setTimeout> | undefined
   let reloading: Promise<void> = Promise.resolve()

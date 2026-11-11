@@ -45,6 +45,8 @@ export interface ConfigValues {
   contextInjection?: boolean
   /** Authenticate the shared gh CLI after a refresh; defaults to true. */
   configureGh?: boolean
+  /** Deny raw git commit commands so Agent commits go through commit_changes; defaults to false. */
+  blockRawGitCommit?: boolean
 }
 
 /**
@@ -67,6 +69,8 @@ export const Config = z.object({
     .description('Inject the token status into runtime context.').volatile(),
   configureGh: z.boolean().default(true)
     .description('Run gh auth login --with-token after a successful refresh so plain gh commands work.').volatile(),
+  blockRawGitCommit: z.boolean().default(false)
+    .description('Deny direct git commit commands and require the commit_changes tool.').volatile(),
 })
 
 /** Loader-facing Config type: one stable reference per volatile field. */
@@ -109,6 +113,8 @@ export interface ResolvedConfig {
   readonly contextInjection: boolean
   /** Whether a refreshed token is also installed into the shared gh CLI. */
   readonly configureGh: boolean
+  /** Whether raw git commit commands are denied for Agent shells. */
+  readonly blockRawGitCommit: boolean
   /** Credential fields still absent when `configured` is false. */
   readonly missing: readonly string[]
 }
@@ -156,6 +162,7 @@ export function readConfig(config: ConfigInput = {}): ConfigValues {
   const apiBaseUrl = readField(config.apiBaseUrl)
   const contextInjection = readField(config.contextInjection)
   const configureGh = readField(config.configureGh)
+  const blockRawGitCommit = readField(config.blockRawGitCommit)
   return {
     ...(appId === undefined ? {} : { appId }),
     ...(installationId === undefined ? {} : { installationId }),
@@ -166,6 +173,7 @@ export function readConfig(config: ConfigInput = {}): ConfigValues {
     ...(apiBaseUrl === undefined ? {} : { apiBaseUrl }),
     ...(contextInjection === undefined ? {} : { contextInjection }),
     ...(configureGh === undefined ? {} : { configureGh }),
+    ...(blockRawGitCommit === undefined ? {} : { blockRawGitCommit }),
   }
 }
 
@@ -313,6 +321,9 @@ export function resolveConfig(config: ConfigValues = {}, environment: ConfigEnvi
   const configureGh = config.configureGh === undefined
     ? true
     : parseBoolean(config.configureGh, 'configureGh')
+  const blockRawGitCommit = config.blockRawGitCommit === undefined
+    ? false
+    : parseBoolean(config.blockRawGitCommit, 'blockRawGitCommit')
 
   if (!anyCredentialField) {
     return {
@@ -322,6 +333,7 @@ export function resolveConfig(config: ConfigValues = {}, environment: ConfigEnvi
       apiBaseUrl,
       contextInjection,
       configureGh,
+      blockRawGitCommit,
       missing: [...CREDENTIAL_FIELD_NAMES],
     }
   }
@@ -340,6 +352,7 @@ export function resolveConfig(config: ConfigValues = {}, environment: ConfigEnvi
       apiBaseUrl,
       contextInjection,
       configureGh,
+      blockRawGitCommit,
       missing: [],
     }
   }
@@ -355,6 +368,7 @@ export function resolveConfig(config: ConfigValues = {}, environment: ConfigEnvi
     apiBaseUrl,
     contextInjection,
     configureGh,
+    blockRawGitCommit,
     missing: [],
   }
 }

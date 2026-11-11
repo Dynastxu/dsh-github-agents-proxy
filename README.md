@@ -11,6 +11,7 @@ DeepSeek Harness 的 GitHub App 代理。只需配置一次 App 凭证，之后 
 - 提供 `refresh_ghapp_token` 与 `check_ghapp_token_status` 两个工具。
 - 在对话开始时注入一次固定前缀的令牌快照；当令牌进入刷新阈值内、刷新成功后再次注入。
 - 从 App ID 和私钥解析 App bot 的 login / user id，并向 Host 进程注入 `GIT_AUTHOR_*`、`GIT_COMMITTER_*`，让 Agent 子进程里的 `git commit` 自动使用 bot 身份；不修改仓库或全局 git 配置。
+- 提供 `commit_changes` 工具：单次提交设置 bot 身份，并自动追加用户的 `Co-authored-by` trailer；可在设置页阻断裸 `git commit`，并注入 Agent 提交规范提示。
 - 把 Installation Token 存入私有文件（平台支持时权限为 `0600`），刷新时持有跨进程文件锁，拿到锁后再次检查过期时间。
 - 不启动守护进程、定时器、计划任务或后台 job。只有 Agent 调用刷新工具时才会访问 GitHub；状态在正常的提示词组装过程中计算。
 
@@ -66,6 +67,7 @@ patch 会插入 `github-agents-proxy` 行。在 profile 的 `cordis.patch.yml` �
 | `apiBaseUrl` | `https://api.github.com` | GitHub API 地址；GitHub Enterprise 可带 `api/v3` 路径。 |
 | `contextInjection` | `true` | 是否注入运行时上下文状态快照。 |
 | `configureGh` | `true` | 刷新成功后执行 `gh auth login --with-token`，让普通 `gh` 命令直接使用该令牌；不修改全局 git 配置。 |
+| `blockRawGitCommit` | `false` | 拒绝 bash/pwsh 中直接执行的 `git commit`，要求 Agent 使用 `commit_changes`。这是命令护栏，不是安全边界。 |
 
 ### 私钥不要进入仓库
 
@@ -148,6 +150,34 @@ GIT_COMMITTER_EMAIL  = 354391007+dsh-agents[bot]@users.noreply.github.com
 - Agent 显式使用 `git commit --author=...` 或自己覆盖 `GIT_AUTHOR_*` 时仍可能绕过。
 - 远程 SSH/容器里的 git 是否继承这些变量取决于该环境。
 - 如果启动时解析 bot 身份失败，插件仍会加载，但不会注入身份；后续刷新成功时会再尝试。
+
+## `commit_changes` 与裸提交护栏
+
+系统提示词中会加入一段提交规范，要求 Agent 使用 `commit_changes`，不要直接 `git commit`。
+
+工具参数：
+
+| 参数 | 说明 |
+|---|---|
+| `message` | 提交信息，必填 |
+| `stage` | `all` / `tracked` / `staged`，默认 `all` |
+| `allow_empty` | 是否允许空提交 |
+| `amend` | 是否 amend 当前 HEAD |
+
+工具行为：
+
+1. 从全局 git 配置读取用户 `user.name` / `user.email`；
+2. 用 App bot 身份执行 `git add` 和 `git commit`；
+3. 提交信息末尾追加：
+   ```text
+   Co-authored-by: <user name> <user email>
+   ```
+4. 返回 `sha`、`branch`、`author`、`committer`、`co_author`；
+5. 默认不 push。
+
+设置页的 **阻断普通 git commit** 打开后，`tools/pre-execute` 会拒绝 bash/pwsh 中包含 `git commit` 的命令，并提示改用 `commit_changes`。
+
+这个护栏只检查模型提交的 shell 命令文本；脚本内部、Git alias、间接调用仍可能绕过，因此它不是安全边界。`git merge`、`git rebase`、`git cherry-pick` 等会产生提交的命令不在阻断范围内，仍依赖进程级 bot 身份兜底。
 
 ## 运行时上下文快照
 

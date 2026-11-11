@@ -20,6 +20,9 @@ attribution are later steps.
   injects `GIT_AUTHOR_*` / `GIT_COMMITTER_*` into the Host process so Agent
   child-process `git commit` uses the bot identity. No repository or global git
   configuration is changed.
+- Provides `commit_changes`, which sets the bot identity for one commit and
+  appends the user's `Co-authored-by` trailer. A setting can block raw
+  `git commit`, and a system-prompt section tells Agents to use the tool.
 - Stores the installation token in a private file (`0600` where the platform
   supports it) and refreshes it under a cross-process file lock with a
   double-check after the lock.
@@ -89,6 +92,7 @@ The browser half loads with the Web client; restart the DSH Host after upgrading
 | `apiBaseUrl` | `https://api.github.com` | GitHub API origin, including a GitHub Enterprise `api/v3` path when needed. |
 | `contextInjection` | `true` | Inject the runtime-context status snapshot. |
 | `configureGh` | `true` | Run `gh auth login --with-token` after refresh so plain `gh` commands use the token; global git settings are left untouched. |
+| `blockRawGitCommit` | `false` | Deny direct `git commit` in bash/pwsh and require `commit_changes`. A command guardrail, not a security boundary. |
 
 ### Keep the private key out of the repository
 
@@ -198,6 +202,39 @@ Limits:
   environment forwards them.
 - If bot identity resolution fails at startup, the plugin still loads without
   injecting identity and retries after a successful token refresh.
+
+## `commit_changes` and the raw-commit guard
+
+A system-prompt section tells Agents to use `commit_changes` instead of a raw
+`git commit`.
+
+Tool parameters:
+
+| Parameter | Meaning |
+|---|---|
+| `message` | Commit message; required |
+| `stage` | `all` / `tracked` / `staged`; defaults to `all` |
+| `allow_empty` | Allow an empty commit |
+| `amend` | Amend the current HEAD |
+
+The tool:
+
+1. Reads the user's `user.name` / `user.email` from global git config;
+2. Runs `git add` and `git commit` with the App bot identity;
+3. Appends:
+   ```text
+   Co-authored-by: <user name> <user email>
+   ```
+4. Returns `sha`, `branch`, `author`, `committer`, and `co_author`;
+5. Does not push.
+
+When **Block raw git commit** is enabled, `tools/pre-execute` denies bash/pwsh
+commands that invoke `git commit` and points the Agent at `commit_changes`.
+
+The guard inspects only the shell command text submitted by the model; scripts,
+Git aliases, and indirect loaders can bypass it, so it is not a security
+boundary. Commands such as `git merge`, `git rebase`, and `git cherry-pick`
+are not blocked and still rely on the process-level bot identity.
 
 ## Runtime-context snapshot
 

@@ -18,6 +18,7 @@ describe('resolveConfig', () => {
     expect(resolved.missing).toEqual(['appId', 'installationId', 'privateKeyPath'])
     expect(resolved.refreshThresholdSeconds).toBe(300)
     expect(resolved.contextInjection).toBe(true)
+    expect(resolved.blockRawGitCommit).toBe(false)
     expect(resolved.tokenPath).toBe(join(PROFILE_DIR, 'github-app-token.json'))
   })
 
@@ -89,6 +90,7 @@ describe('resolveConfig', () => {
       privateKeyEnv: 'GITHUB_APP_KEY',
       refreshThresholdSeconds: 45,
       contextInjection: false,
+      blockRawGitCommit: true,
     })
     expect(readConfig(live)).toMatchObject({
       appId: '7',
@@ -96,6 +98,7 @@ describe('resolveConfig', () => {
       privateKeyEnv: 'GITHUB_APP_KEY',
       refreshThresholdSeconds: 45,
       contextInjection: false,
+      blockRawGitCommit: true,
       apiBaseUrl: 'https://api.github.com',
     })
   })

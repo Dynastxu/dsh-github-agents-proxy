@@ -16,10 +16,12 @@ function fakeContext(): {
   ctx: Context
   tools: Map<string, CapturedTool>
   prompts: Map<string, CapturedPrompt>
+  sections: Map<string, { readonly name: string; readonly text: string | (() => string) }>
 } {
   const ctx = new Context()
   const tools = new Map<string, CapturedTool>()
   const prompts = new Map<string, CapturedPrompt>()
+  const sections = new Map<string, { readonly name: string; readonly text: string | (() => string) }>()
   ctx.provide('tools', {
     register(definition: CapturedTool) {
       tools.set(definition.name, definition)
@@ -31,8 +33,12 @@ function fakeContext(): {
       prompts.set(entry.name, entry)
       return () => prompts.delete(entry.name)
     },
+    section(entry: { readonly name: string; readonly text: string | (() => string) }) {
+      sections.set(entry.name, entry)
+      return () => sections.delete(entry.name)
+    },
   })
-  return { ctx, tools, prompts }
+  return { ctx, tools, prompts, sections }
 }
 
 describe('github-agents-proxy plugin', () => {
@@ -44,8 +50,9 @@ describe('github-agents-proxy plugin', () => {
     const fake = fakeContext()
     try {
       await fake.ctx.plugin(plugin)
-      expect([...fake.tools.keys()].sort()).toEqual(['check_ghapp_token_status', 'refresh_ghapp_token'])
+      expect([...fake.tools.keys()].sort()).toEqual(['check_ghapp_token_status', 'commit_changes', 'refresh_ghapp_token'])
       expect([...fake.prompts.keys()]).toEqual([plugin.GITHUB_APP_TOKEN_CONTEXT_NAME])
+      expect([...fake.sections.keys()]).toEqual([plugin.GITHUB_APP_COMMIT_GUIDANCE_SECTION])
       const prompt = fake.prompts.get(plugin.GITHUB_APP_TOKEN_CONTEXT_NAME)!
       expect(prompt.text({})).toBe('')
       expect(prompt.text({ agent: {} })).toContain('[github-app-token] status=unconfigured')
@@ -53,6 +60,7 @@ describe('github-agents-proxy plugin', () => {
       await fake.ctx.fiber.dispose()
       expect(fake.tools.size).toBe(0)
       expect(fake.prompts.size).toBe(0)
+      expect(fake.sections.size).toBe(0)
     } finally {
       await fake.ctx.fiber.dispose()
     }

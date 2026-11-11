@@ -24,6 +24,7 @@ interface GithubAppSettings {
   readonly apiBaseUrl?: string
   readonly contextInjection?: boolean
   readonly configureGh?: boolean
+  readonly blockRawGitCommit?: boolean
 }
 
 interface ConfigFormSnapshot<T> {
@@ -77,6 +78,7 @@ interface Draft {
   apiBaseUrl: string
   contextInjection: boolean
   configureGh: boolean
+  blockRawGitCommit: boolean
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -89,6 +91,7 @@ const EMPTY_DRAFT: Draft = {
   apiBaseUrl: '',
   contextInjection: true,
   configureGh: true,
+  blockRawGitCommit: false,
 }
 
 function draftFrom(value: GithubAppSettings | undefined): Draft {
@@ -104,6 +107,7 @@ function draftFrom(value: GithubAppSettings | undefined): Draft {
     apiBaseUrl: value.apiBaseUrl ?? '',
     contextInjection: value.contextInjection !== false,
     configureGh: value.configureGh !== false,
+    blockRawGitCommit: value.blockRawGitCommit === true,
   }
 }
 
@@ -189,6 +193,7 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
         write(form, 'apiBaseUrl', draft.apiBaseUrl.trim() === '' ? undefined : draft.apiBaseUrl.trim()),
         write(form, 'contextInjection', draft.contextInjection),
         write(form, 'configureGh', draft.configureGh),
+        write(form, 'blockRawGitCommit', draft.blockRawGitCommit),
       ]
       let accepted = true
       for (const operation of writes) {
@@ -211,7 +216,7 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
     setBusy(true)
     setMessage(null)
     try {
-      const fields = ['appId', 'installationId', 'privateKeyPath', 'privateKeyEnv', 'tokenPath', 'refreshThresholdSeconds', 'apiBaseUrl', 'contextInjection', 'configureGh']
+      const fields = ['appId', 'installationId', 'privateKeyPath', 'privateKeyEnv', 'tokenPath', 'refreshThresholdSeconds', 'apiBaseUrl', 'contextInjection', 'configureGh', 'blockRawGitCommit']
       let accepted = true
       for (const field of fields) {
         if (!(await form.unset(field))) accepted = false
@@ -275,6 +280,13 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
           <span>
             <span className="ghapp-label">{t('configureGh')}</span>
             <span className="ghapp-hint"> {t('configureGhHint')}</span>
+          </span>
+        </label>
+        <label className="ghapp-field ghapp-field-wide ghapp-check">
+          <input type="checkbox" checked={draft.blockRawGitCommit} disabled={!editable} onChange={event => update({ blockRawGitCommit: event.currentTarget.checked })} />
+          <span>
+            <span className="ghapp-label">{t('blockRawGitCommit')}</span>
+            <span className="ghapp-hint"> {t('blockRawGitCommitHint')}</span>
           </span>
         </label>
       </div>

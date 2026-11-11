@@ -32,6 +32,7 @@ describe('GitHub App bot identity', () => {
   it('installs and restores the Agent git identity environment', () => {
     const keys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL'] as const
     const previous = new Map(keys.map(key => [key, process.env[key]]))
+    const previousCommitterName = process.env.GIT_COMMITTER_NAME
     clearBotIdentity()
     process.env.GIT_AUTHOR_NAME = 'previous-author'
     try {
@@ -45,7 +46,7 @@ describe('GitHub App bot identity', () => {
       expect(process.env.GIT_COMMITTER_EMAIL).toBe('354391007+dsh-agents[bot]@users.noreply.github.com')
       clearBotIdentity()
       expect(process.env.GIT_AUTHOR_NAME).toBe('previous-author')
-      expect(process.env.GIT_COMMITTER_NAME).toBeUndefined()
+      expect(process.env.GIT_COMMITTER_NAME).toBe(previousCommitterName)
     } finally {
       clearBotIdentity()
       for (const key of keys) {
