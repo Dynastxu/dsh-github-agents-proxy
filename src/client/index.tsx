@@ -3,17 +3,33 @@
  *
  * Values live in the active profile's volatile Config fields and are read and
  * written through `ctx.configForms`, so `cordis.patch.yml`, the settings page,
- * and the running Host share one source of truth.
+ * and the running Host share one source of truth. Edits are written as one
+ * atomic mutation after a short pause; there is no Save button.
  *
  * @module @dynastxu/dsh-github-agents-proxy/client
  */
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import { draftFrom, EMPTY_DRAFT, validateDraft, type Draft, type GithubAppSettings } from './draft.ts'
+import {
+  credentialsComplete, credentialsEntered, draftFrom, draftWrites, EMPTY_DRAFT, validateDraft,
+  type ConfigPathOp, type Draft, type GithubAppSettings,
+} from './draft.ts'
 import { en, NS, zh, type CopyKey, type Translate } from './locales.ts'
 import { describeTokenStatus, useTokenStatus, type TokenStatus } from './status.ts'
 import { CSS, STYLE_MARKER } from './styles.ts'
+
+/** Pause after the last edit before the draft is written. */
+const AUTOSAVE_DELAY_MS = 500
+
+/** How long a successful save notice stays beside the reset button. */
+const SAVED_NOTICE_MS = 2000
+
+/** Every editable namespace field, cleared by the reset action. */
+const CONFIG_FIELDS = [
+  'appId', 'installationId', 'privateKeyPath', 'privateKeyEnv', 'tokenPath',
+  'refreshThresholdSeconds', 'apiBaseUrl', 'contextInjection', 'configureGh', 'blockRawGitCommit',
+] as const
 
 interface ConfigFormSnapshot<T> {
   readonly status: 'loading' | 'ready' | 'unavailable'
@@ -25,8 +41,7 @@ interface ConfigFormSnapshot<T> {
 interface ConfigForm<T> {
   getSnapshot(): ConfigFormSnapshot<T>
   subscribe(listener: () => void): () => void
-  set(field: string, value: unknown): Promise<boolean>
-  unset(field: string): Promise<boolean>
+  mutate(ops: readonly ConfigPathOp[]): Promise<boolean>
 }
 
 interface ConfigFormsService {
@@ -56,12 +71,6 @@ interface SettingsSectionProps {
   readonly form: ConfigForm<GithubAppSettings>
 }
 
-/** Set or clear one form field. */
-async function write(form: ConfigForm<GithubAppSettings>, field: string, value: unknown): Promise<boolean> {
-  if (value === undefined || value === '') return form.unset(field)
-  return form.set(field, value)
-}
-
 /** GitHub mark used as the default App avatar. */
 function GitHubMark(): ReactNode {
   return (
@@ -87,9 +96,10 @@ function TokenStatusLine({ status, t }: { readonly status: TokenStatus; readonly
 }
 
 /** Label, hint, and the control they describe on one settings row. */
-function FieldRow({ label, hint, children }: {
+function FieldRow({ label, hint, note, children }: {
   readonly label: string
   readonly hint: string
+  readonly note?: string | undefined
   readonly children: ReactNode
 }): ReactNode {
   return (
@@ -97,6 +107,7 @@ function FieldRow({ label, hint, children }: {
       <div className="ghapp-row-text">
         <span className="ghapp-row-title">{label}</span>
         <span className="ghapp-row-desc">{hint}</span>
+        {note === undefined ? null : <span className="ghapp-row-note">{note}</span>}
       </div>
       <div className="ghapp-row-control">{children}</div>
     </div>
@@ -167,88 +178,89 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
     () => form.getSnapshot(),
   )
   const [draft, setDraft] = useState<Draft>(() => draftFrom(snapshot.value))
-  const [dirty, setDirty] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [edited, setEdited] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [statusRevision, setStatusRevision] = useState(0)
   const status = useTokenStatus(statusRevision)
+  /** Counts local edits so an in-flight save cannot discard a newer draft. */
+  const editVersion = useRef(0)
 
   useEffect(() => {
-    if (!dirty) setDraft(draftFrom(snapshot.value))
-  }, [snapshot.value, dirty])
+    if (!edited) setDraft(draftFrom(snapshot.value))
+  }, [snapshot.value, edited])
 
-  const editable = snapshot.status === 'ready' && snapshot.writable && !busy
+  useEffect(() => {
+    if (message === null || message.kind !== 'ok') return
+    const timer = setTimeout(() => { setMessage(null) }, SAVED_NOTICE_MS)
+    return () => { clearTimeout(timer) }
+  }, [message])
+
+  const editable = snapshot.status === 'ready' && snapshot.writable
+  const partialCredentials = credentialsEntered(draft) && !credentialsComplete(draft)
   const update = (patch: Partial<Draft>): void => {
+    editVersion.current += 1
     setDraft(current => ({ ...current, ...patch }))
-    setDirty(true)
+    setEdited(true)
     setMessage(null)
   }
 
-  const save = async (): Promise<void> => {
-    const problem = validateDraft(draft, t)
+  /** Persist every changed field of one draft in a single namespace mutation. */
+  const commit = async (next: Draft): Promise<void> => {
+    const version = editVersion.current
+    const problem = validateDraft(next, t)
     if (problem !== undefined) {
       setMessage({ kind: 'error', text: problem })
       return
     }
-    setBusy(true)
-    setMessage(null)
-    const appId = draft.appId.trim()
-    const installationId = draft.installationId.trim()
-    const keyValue = draft.keyValue.trim()
-    const threshold = Number(draft.threshold.trim())
-    const unconfigured = appId === '' && installationId === '' && keyValue === ''
+    const completeCredentials = credentialsComplete(next) || !credentialsEntered(next)
+    const ops = draftWrites(next, form.getSnapshot().value)
+    if (ops.length === 0) {
+      if (completeCredentials && editVersion.current === version) setEdited(false)
+      return
+    }
+    setSaving(true)
     try {
-      const writes: Promise<boolean>[] = [
-        write(form, 'appId', unconfigured ? undefined : appId),
-        write(form, 'installationId', unconfigured ? undefined : installationId),
-        write(form, 'privateKeyPath', unconfigured || draft.keySource !== 'path' ? undefined : keyValue),
-        write(form, 'privateKeyEnv', unconfigured || draft.keySource !== 'ref' ? undefined : keyValue),
-        write(form, 'tokenPath', draft.tokenPath.trim() === '' ? undefined : draft.tokenPath.trim()),
-        write(form, 'refreshThresholdSeconds', threshold),
-        write(form, 'apiBaseUrl', draft.apiBaseUrl.trim() === '' ? undefined : draft.apiBaseUrl.trim()),
-        write(form, 'contextInjection', draft.contextInjection),
-        write(form, 'configureGh', draft.configureGh),
-        write(form, 'blockRawGitCommit', draft.blockRawGitCommit),
-      ]
-      let accepted = true
-      for (const operation of writes) {
-        if (!(await operation)) accepted = false
-      }
-      if (!accepted) {
+      if (!(await form.mutate(ops))) {
         setMessage({ kind: 'error', text: t('saveFailed') })
         return
       }
-      setDirty(false)
-      setMessage({ kind: 'ok', text: t('saved') })
+      if (completeCredentials && editVersion.current === version) {
+        setEdited(false)
+        setMessage({ kind: 'ok', text: t('saved') })
+      }
       setStatusRevision(current => current + 1)
     } catch {
       setMessage({ kind: 'error', text: t('saveFailed') })
     } finally {
-      setBusy(false)
+      setSaving(false)
     }
   }
 
-  const clear = async (): Promise<void> => {
-    setBusy(true)
+  useEffect(() => {
+    if (!edited || !editable) return
+    const timer = setTimeout(() => { void commit(draft) }, AUTOSAVE_DELAY_MS)
+    return () => { clearTimeout(timer) }
+  }, [draft, edited, editable])
+
+  const reset = async (): Promise<void> => {
+    setSaving(true)
     setMessage(null)
     try {
-      const fields = ['appId', 'installationId', 'privateKeyPath', 'privateKeyEnv', 'tokenPath', 'refreshThresholdSeconds', 'apiBaseUrl', 'contextInjection', 'configureGh', 'blockRawGitCommit']
-      let accepted = true
-      for (const field of fields) {
-        if (!(await form.unset(field))) accepted = false
-      }
+      const accepted = await form.mutate(CONFIG_FIELDS.map(field => ({ op: 'unset', path: [field] })))
       if (!accepted) {
         setMessage({ kind: 'error', text: t('saveFailed') })
         return
       }
+      editVersion.current += 1
       setDraft({ ...EMPTY_DRAFT })
-      setDirty(false)
-      setMessage({ kind: 'ok', text: t('cleared') })
+      setEdited(false)
+      setMessage({ kind: 'ok', text: t('resetDone') })
       setStatusRevision(current => current + 1)
     } catch {
       setMessage({ kind: 'error', text: t('saveFailed') })
     } finally {
-      setBusy(false)
+      setSaving(false)
     }
   }
 
@@ -262,6 +274,15 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
         <div className="ghapp-identity-copy">
           <span className="ghapp-name">{t('title')}</span>
           <TokenStatusLine status={status} t={t} />
+        </div>
+        <div className="ghapp-identity-actions">
+          {message === null ? null : (
+            <span role="status" className={`ghapp-status ${message.kind === 'ok' ? 'ghapp-status-ok' : 'ghapp-status-error'}`}>
+              {message.text}
+            </span>
+          )}
+          <button className="ghapp-button" type="button" disabled={!editable || saving}
+            title={t('resetHint')} onClick={() => { void reset() }}>{t('reset')}</button>
         </div>
       </div>
       {!snapshot.writable ? <p className="ghapp-status ghapp-status-error">{t('readonly')}</p> : null}
@@ -281,7 +302,8 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
             <option value="ref">{t('keyRef')}</option>
           </SelectControl>
         </FieldRow>
-        <FieldRow label={t('keyValue')} hint={draft.keySource === 'path' ? t('keyValueHintPath') : t('keyValueHintRef')}>
+        <FieldRow label={t('keyValue')} hint={draft.keySource === 'path' ? t('keyValueHintPath') : t('keyValueHintRef')}
+          note={partialCredentials ? t('keyPartialHint') : undefined}>
           <input className="ghapp-input" aria-label={t('keyValue')}
             value={draft.keyValue} disabled={!editable} onChange={event => update({ keyValue: event.currentTarget.value })} />
         </FieldRow>
@@ -313,13 +335,6 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
         </div>
       </div>
       <p className="ghapp-note">{t('note')} {t('privateKeyNote')}</p>
-      <div className="ghapp-actions">
-        <button className="ghapp-button ghapp-button-primary" type="button" disabled={!editable} onClick={() => { void save() }}>
-          {busy ? t('saving') : t('save')}
-        </button>
-        <button className="ghapp-button" type="button" disabled={!editable} onClick={() => { void clear() }}>{t('clear')}</button>
-        {message !== null ? <span className={`ghapp-status ${message.kind === 'ok' ? 'ghapp-status-ok' : 'ghapp-status-error'}`}>{message.text}</span> : null}
-      </div>
     </div>
   )
 }

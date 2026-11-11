@@ -43,6 +43,19 @@ export const CSS = `
   flex-direction: column;
   min-width: 0;
 }
+.ghapp-identity-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ghapp-identity-actions .ghapp-status {
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+}
 .ghapp-name {
   font-size: 14px;
   font-weight: 500;
@@ -98,6 +111,11 @@ export const CSS = `
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
+}
+.ghapp-row-note {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
 }
 .ghapp-row-control {
   flex: 0 0 260px;

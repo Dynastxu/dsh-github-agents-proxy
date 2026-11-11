@@ -24,6 +24,11 @@ export interface GithubAppSettings {
   readonly blockRawGitCommit?: boolean
 }
 
+/** One atomic namespace operation accepted by `ctx.configForms`. */
+export type ConfigPathOp =
+  | { readonly op: 'set'; readonly path: readonly string[]; readonly value: string | number | boolean }
+  | { readonly op: 'unset'; readonly path: readonly string[] }
+
 /** Editable text and toggle state of the settings page. */
 export interface Draft {
   appId: string
@@ -104,6 +109,10 @@ function validHttpUrl(value: string): boolean {
 
 /**
  * Find the first invalid draft value.
+ *
+ * Empty credential fields are valid here: a partially filled credential set is
+ * saved only once complete, so the page can autosave the rest of the form
+ * while the operator is still typing.
  * @param draft - current page state.
  * @param t - settings-page translator.
  * @returns the localized problem, or undefined when every supplied value is acceptable.
@@ -112,11 +121,76 @@ export function validateDraft(draft: Draft, t: Translate): string | undefined {
   const appId = draft.appId.trim()
   const installationId = draft.installationId.trim()
   const keyValue = draft.keyValue.trim()
-  if (appId === '' && installationId === '' && keyValue === '') return undefined
-  if (!validId(appId) || !validId(installationId)) return t('invalidIds')
-  if (keyValue === '') return t('invalidKey')
-  if (draft.keySource === 'ref' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyValue)) return t('invalidKey')
-  if (!/^(0|[1-9][0-9]*)$/.test(draft.threshold.trim())) return t('invalidThreshold')
+  if (appId !== '' && !validId(appId)) return t('invalidIds')
+  if (installationId !== '' && !validId(installationId)) return t('invalidIds')
+  if (draft.keySource === 'ref' && keyValue !== '' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyValue)) return t('invalidKey')
+  const threshold = draft.threshold.trim()
+  if (threshold !== '' && !/^(0|[1-9][0-9]*)$/.test(threshold)) return t('invalidThreshold')
   if (!validHttpUrl(draft.apiBaseUrl.trim())) return t('invalidUrl')
   return undefined
+}
+
+/**
+ * Whether the operator supplied any credential field.
+ * @param draft - current page state.
+ * @returns whether an App ID, Installation ID, or private-key value is present.
+ */
+export function credentialsEntered(draft: Draft): boolean {
+  return draft.appId.trim() !== '' || draft.installationId.trim() !== '' || draft.keyValue.trim() !== ''
+}
+
+/**
+ * Whether all three credential fields are present.
+ * @param draft - current page state.
+ * @returns whether App ID, Installation ID, and private-key value are all present.
+ */
+export function credentialsComplete(draft: Draft): boolean {
+  return draft.appId.trim() !== '' && draft.installationId.trim() !== '' && draft.keyValue.trim() !== ''
+}
+
+/**
+ * Turn the draft into the atomic mutation that persists every changed field.
+ *
+ * The credential group is written only while it is complete or empty: the Host
+ * rejects a partial credential set at load, so intermediate typing must not
+ * reach the profile. Other fields are written independently.
+ * @param draft - current page state.
+ * @param value - stored configuration the draft was derived from.
+ * @returns operations for one namespace mutation; empty when nothing changed.
+ */
+export function draftWrites(draft: Draft, value: GithubAppSettings | undefined): ConfigPathOp[] {
+  const current = value ?? {}
+  const ops: ConfigPathOp[] = []
+  const setText = (field: string, next: string, previous: string): void => {
+    if (next === previous) return
+    if (next === '') ops.push({ op: 'unset', path: [field] })
+    else ops.push({ op: 'set', path: [field], value: next })
+  }
+  const currentText = (field: string | number | undefined): string =>
+    field === undefined ? '' : String(field).trim()
+
+  if (credentialsComplete(draft) || !credentialsEntered(draft)) {
+    setText('appId', draft.appId.trim(), currentText(current.appId))
+    setText('installationId', draft.installationId.trim(), currentText(current.installationId))
+    const keyValue = draft.keyValue.trim()
+    setText('privateKeyPath', draft.keySource === 'path' ? keyValue : '', currentText(current.privateKeyPath))
+    setText('privateKeyEnv', draft.keySource === 'ref' ? keyValue : '', currentText(current.privateKeyEnv))
+  }
+
+  setText('tokenPath', draft.tokenPath.trim(), currentText(current.tokenPath))
+  const threshold = draft.threshold.trim()
+  if (threshold === '') {
+    if (current.refreshThresholdSeconds !== undefined) ops.push({ op: 'unset', path: ['refreshThresholdSeconds'] })
+  } else if (Number(threshold) !== (current.refreshThresholdSeconds ?? 300)) {
+    ops.push({ op: 'set', path: ['refreshThresholdSeconds'], value: Number(threshold) })
+  }
+  setText('apiBaseUrl', draft.apiBaseUrl.trim(), currentText(current.apiBaseUrl))
+
+  const setBoolean = (field: string, next: boolean, previous: boolean): void => {
+    if (next !== previous) ops.push({ op: 'set', path: [field], value: next })
+  }
+  setBoolean('contextInjection', draft.contextInjection, current.contextInjection !== false)
+  setBoolean('configureGh', draft.configureGh, current.configureGh !== false)
+  setBoolean('blockRawGitCommit', draft.blockRawGitCommit, current.blockRawGitCommit === true)
+  return ops
 }
