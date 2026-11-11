@@ -22,7 +22,10 @@ export interface BotIdentity {
   readonly userId: number
   /** App slug used to derive the login. */
   readonly appSlug: string
-  /** Avatar URL of the App owner from `GET /app`, when GitHub reports one. */
+  /**
+   * Avatar URL of the App bot user, which is the App's own avatar; falls back
+   * to the App owner's avatar when the bot user reports none.
+   */
   readonly avatarUrl?: string
 }
 
@@ -108,7 +111,7 @@ export async function resolveBotIdentity(
   const slug = app.slug.trim()
   const login = `${slug}[bot]`
   const owner = isRecord(app.owner) ? app.owner : undefined
-  const avatarUrl = owner !== undefined && typeof owner.avatar_url === 'string'
+  const ownerAvatarUrl = owner !== undefined && typeof owner.avatar_url === 'string'
     ? owner.avatar_url.trim()
     : ''
   const user = await getJson(
@@ -121,6 +124,8 @@ export async function resolveBotIdentity(
   if (!isRecord(user) || typeof user.login !== 'string' || typeof user.id !== 'number' || !Number.isSafeInteger(user.id)) {
     throw new Error(`GitHub user response for ${login} omitted its login or numeric id`)
   }
+  const userAvatarUrl = typeof user.avatar_url === 'string' ? user.avatar_url.trim() : ''
+  const avatarUrl = userAvatarUrl === '' ? ownerAvatarUrl : userAvatarUrl
   return {
     login: user.login,
     email: `${user.id}+${user.login}@users.noreply.github.com`,

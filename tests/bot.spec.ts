@@ -29,7 +29,36 @@ describe('GitHub App bot identity', () => {
     }
   })
 
-  it('carries the App owner avatar reported by GET /app', async () => {
+  it('prefers the App bot user avatar over the owner avatar', async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith('/app')) {
+        return jsonResponse({
+          id: 5678739,
+          slug: 'dsh-agents',
+          owner: { login: 'dynastxu', avatar_url: 'https://avatars.githubusercontent.com/u/151742029?v=4' },
+        })
+      }
+      if (url.endsWith('/users/dsh-agents%5Bbot%5D')) {
+        return jsonResponse({
+          id: 354391007,
+          login: 'dsh-agents[bot]',
+          type: 'Bot',
+          avatar_url: 'https://avatars.githubusercontent.com/in/5678739?v=4&size=32',
+        })
+      }
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    const fixture = await createFixture()
+    try {
+      const identity = await resolveBotIdentity(fixture.config, { fetch: fetchImpl, now: () => Date.now() }, abortSignal())
+      expect(identity.avatarUrl).toBe('https://avatars.githubusercontent.com/in/5678739?v=4&size=32')
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('falls back to the App owner avatar when the bot user reports none', async () => {
     const fetchImpl = (async (input: string | URL | Request) => {
       const url = String(input)
       if (url.endsWith('/app')) {
