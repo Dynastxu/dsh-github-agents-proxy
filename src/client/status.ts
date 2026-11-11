@@ -61,6 +61,7 @@ function isStatusBody(value: unknown): value is TokenStatusResponse {
     && typeof record.token_file === 'string'
     && typeof record.server_time === 'string'
     && Number.isFinite(Date.parse(record.server_time))
+    && (record.app_avatar_url === undefined || typeof record.app_avatar_url === 'string')
 }
 
 /**

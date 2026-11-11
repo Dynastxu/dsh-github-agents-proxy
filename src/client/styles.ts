@@ -35,8 +35,15 @@ export const CSS = `
   height: 32px;
   border-radius: 50%;
   corner-shape: round;
+  overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
   background: var(--dsw-alias-bg-skeleton);
+}
+.ghapp-avatar-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .ghapp-identity-copy {
   display: flex;

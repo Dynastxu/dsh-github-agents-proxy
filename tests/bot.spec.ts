@@ -29,6 +29,40 @@ describe('GitHub App bot identity', () => {
     }
   })
 
+  it('carries the App owner avatar reported by GET /app', async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith('/app')) {
+        return jsonResponse({
+          id: 5678739,
+          slug: 'dsh-agents',
+          owner: { login: 'dynastxu', avatar_url: 'https://avatars.githubusercontent.com/u/151742029?v=4' },
+        })
+      }
+      if (url.endsWith('/users/dsh-agents%5Bbot%5D')) {
+        return jsonResponse({ id: 354391007, login: 'dsh-agents[bot]', type: 'Bot' })
+      }
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    const fixture = await createFixture()
+    try {
+      const identity = await resolveBotIdentity(fixture.config, { fetch: fetchImpl, now: () => Date.now() }, abortSignal())
+      expect(identity.avatarUrl).toBe('https://avatars.githubusercontent.com/u/151742029?v=4')
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('omits an avatar the App response does not provide', async () => {
+    const fixture = await createFixture()
+    try {
+      const identity = await resolveBotIdentity(fixture.config, { fetch: botFetch(), now: () => Date.now() }, abortSignal())
+      expect(identity.avatarUrl).toBeUndefined()
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
   it('installs and restores the Agent git identity environment', () => {
     const keys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL'] as const
     const previous = new Map(keys.map(key => [key, process.env[key]]))

@@ -194,6 +194,8 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [statusRevision, setStatusRevision] = useState(0)
   const status = useTokenStatus(statusRevision)
+  const avatarUrl = status.report?.app_avatar_url
+  const [failedAvatar, setFailedAvatar] = useState<string | undefined>(undefined)
   /** Counts local edits so an in-flight save cannot discard a newer draft. */
   const editVersion = useRef(0)
   const [pathBridge] = useState<HostPathBridge | undefined>(() => readHostPathBridge())
@@ -293,7 +295,12 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   return (
     <div className="ghapp-settings">
       <div className="ghapp-card ghapp-identity">
-        <span className="ghapp-avatar" aria-hidden="true"><GitHubMark /></span>
+        <span className="ghapp-avatar" aria-hidden="true">
+          {avatarUrl === undefined || avatarUrl === '' || avatarUrl === failedAvatar
+            ? <GitHubMark />
+            : <img className="ghapp-avatar-image" src={avatarUrl} alt="" referrerPolicy="no-referrer"
+              onError={() => { setFailedAvatar(avatarUrl) }} />}
+        </span>
         <div className="ghapp-identity-copy">
           <span className="ghapp-name">{t('title')}</span>
           <TokenStatusLine status={status} t={t} />
