@@ -4,12 +4,13 @@
 
 DeepSeek Harness 的 GitHub App 代理。只需配置一次 App 凭证，之后 Agent 通过 `gh`/`git` 访问 GitHub 时使用 Installation Token，使推送归属于该 App 的 bot 身份；令牌按需刷新。
 
-本阶段只负责令牌与 `gh`/`git` 认证。提交作者改写、提交信息处理和 PR 归属留到后续步骤。
+本阶段负责令牌、`gh` 认证和 Agent 子进程的 Git 身份注入。提交历史改写、Verified 签名和 PR 归属留到后续步骤。
 
 ## 功能
 
 - 提供 `refresh_ghapp_token` 与 `check_ghapp_token_status` 两个工具。
 - 在对话开始时注入一次固定前缀的令牌快照；当令牌进入刷新阈值内、刷新成功后再次注入。
+- 从 App ID 和私钥解析 App bot 的 login / user id，并向 Host 进程注入 `GIT_AUTHOR_*`、`GIT_COMMITTER_*`，让 Agent 子进程里的 `git commit` 自动使用 bot 身份；不修改仓库或全局 git 配置。
 - 把 Installation Token 存入私有文件（平台支持时权限为 `0600`），刷新时持有跨进程文件锁，拿到锁后再次检查过期时间。
 - 不启动守护进程、定时器、计划任务或后台 job。只有 Agent 调用刷新工具时才会访问 GitHub；状态在正常的提示词组装过程中计算。
 
@@ -120,6 +121,33 @@ refs:
 ### `check_ghapp_token_status`
 
 只读取本地缓存文件，不访问 GitHub。返回 `valid`、`expiring`、`expired`、`missing`、`invalid` 或 `unconfigured`，并附带 `expires_at`、`remaining`、`needs_refresh` 和令牌文件路径。状态快照缺失或工作流需要重新读取本地状态时使用。
+
+## Agent 提交身份
+
+设置页不需要填写 bot 的 name/email。插件用现有 App ID 和私钥调用：
+
+```text
+GET /app                         → slug = dsh-agents
+GET /users/dsh-agents%5Bbot%5D  → id = 354391007, login = dsh-agents[bot]
+```
+
+并推导：
+
+```text
+GIT_AUTHOR_NAME      = dsh-agents[bot]
+GIT_AUTHOR_EMAIL     = 354391007+dsh-agents[bot]@users.noreply.github.com
+GIT_COMMITTER_NAME   = dsh-agents[bot]
+GIT_COMMITTER_EMAIL  = 354391007+dsh-agents[bot]@users.noreply.github.com
+```
+
+这四个变量只写入 Host 进程环境，由 Agent 的 bash/pwsh 子进程继承；插件不会执行 `git config`，也不会改仓库或全局 git 配置，dispose 时恢复原值。因此用户在外部终端的提交不受影响。
+
+边界：
+
+- 本地 `git commit` 产生的提交 author/committer 是 bot，但 `verified: false`；本阶段不处理签名/Verified。
+- Agent 显式使用 `git commit --author=...` 或自己覆盖 `GIT_AUTHOR_*` 时仍可能绕过。
+- 远程 SSH/容器里的 git 是否继承这些变量取决于该环境。
+- 如果启动时解析 bot 身份失败，插件仍会加载，但不会注入身份；后续刷新成功时会再尝试。
 
 ## 运行时上下文快照
 

@@ -48,6 +48,48 @@ export interface ManagerOptions {
   readonly lockPollMs?: number
   /** gh authentication override used by tests; defaults to the real gh CLI. */
   readonly gh?: (token: string, apiBaseUrl: string, signal: AbortSignal) => Promise<GhAuthResult>
+  /** Best-effort notification after a cached or fresh token is accepted. */
+  readonly onTokenAvailable?: (token: StoredToken) => Promise<void>
+}
+
+/** Credentials and environment used to resolve a configured private key. */
+export interface PrivateKeyReadOptions {
+  /** Credential service used by `privateKeyEnv`. */
+  readonly credentials?: CredentialsResolver
+  /** Environment used by `privateKeyEnv` when no credential service is present. */
+  readonly env?: Readonly<Record<string, string | undefined>>
+}
+
+/**
+ * Read the configured App private key.
+ * @param config - resolved App configuration.
+ * @param options - credential and environment overrides.
+ * @param signal - cancellation for the file read.
+ * @returns PEM text.
+ * @throws when neither key source is configured or its value is empty.
+ */
+export async function readPrivateKeyPem(
+  config: ResolvedConfig,
+  options: PrivateKeyReadOptions,
+  signal: AbortSignal,
+): Promise<string> {
+  if (config.privateKeyPath !== undefined) {
+    return readFile(config.privateKeyPath, { encoding: 'utf8', signal })
+  }
+  const ref = config.privateKeyEnv
+  if (ref === undefined) throw new Error('GitHub App private key is not configured')
+  if (options.credentials !== undefined) {
+    const resolved = await options.credentials.resolve(ref)
+    if (resolved === undefined || resolved.value.trim().length === 0) {
+      throw new Error(`credential "${ref}" is not configured`)
+    }
+    return resolved.value
+  }
+  const value = (options.env ?? process.env)[ref]
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`environment credential "${ref}" is not configured`)
+  }
+  return value
 }
 
 const MAX_ERROR_MESSAGE_CHARS = 600
@@ -258,6 +300,7 @@ export class GitHubAppTokenManager {
         }
         const now = this.now()
         if (!force && current !== undefined && this.matchesConfig(current) && !this.needsRefresh(current, now)) {
+          await this.notifyTokenAvailable(current, signal)
           const gh = await this.configureGh(current.token, signal)
           signal.throwIfAborted()
           return this.stillValid(current, now, gh)
@@ -268,6 +311,7 @@ export class GitHubAppTokenManager {
         this.token = record
         this.loadError = undefined
         this.snapshots.invalidateAll()
+        await this.notifyTokenAvailable(record, signal)
         const gh = await this.configureGh(record.token, signal)
         signal.throwIfAborted()
         return {
@@ -390,23 +434,14 @@ export class GitHubAppTokenManager {
   }
 
   private async readPrivateKey(signal: AbortSignal): Promise<string> {
-    if (this.config.privateKeyPath !== undefined) {
-      return readFile(this.config.privateKeyPath, { encoding: 'utf8', signal })
-    }
-    const ref = this.config.privateKeyEnv
-    if (ref === undefined) throw new Error('GitHub App private key is not configured')
-    if (this.options.credentials !== undefined) {
-      const resolved = await this.options.credentials.resolve(ref)
-      if (resolved === undefined || resolved.value.trim().length === 0) {
-        throw new Error(`credential "${ref}" is not configured`)
-      }
-      return resolved.value
-    }
-    const value = (this.options.env ?? process.env)[ref]
-    if (value === undefined || value.trim().length === 0) {
-      throw new Error(`environment credential "${ref}" is not configured`)
-    }
-    return value
+    return readPrivateKeyPem(this.config, this.options, signal)
+  }
+
+  private async notifyTokenAvailable(token: StoredToken, signal: AbortSignal): Promise<void> {
+    if (this.options.onTokenAvailable === undefined) return
+    signal.throwIfAborted()
+    await this.options.onTokenAvailable(token)
+    signal.throwIfAborted()
   }
 
   private async configureGh(token: string, signal: AbortSignal): Promise<GhAuthResult> {

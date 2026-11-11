@@ -12,7 +12,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { readConfig, resolveConfig, type ConfigInput } from './config.ts'
+import { readConfig, resolveConfig, type ConfigInput, type ResolvedConfig } from './config.ts'
+import { clearBotIdentity, installBotIdentity, resolveBotIdentity } from './bot.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -30,8 +31,10 @@ import { createRefreshTool, createStatusTool, type TokenManagerSource, type Tool
 export { Config } from './config.ts'
 export type { ConfigEnvironment, ConfigInput, ConfigValues, ResolvedConfig } from './config.ts'
 export { ConfigurationError, DEFAULT_API_BASE_URL, DEFAULT_REFRESH_THRESHOLD_SECONDS, readConfig, resolveConfig } from './config.ts'
+export type { BotIdentity, BotIdentityOptions } from './bot.ts'
+export { clearBotIdentity, installBotIdentity, resolveBotIdentity } from './bot.ts'
 export type { CredentialsResolver, ManagerOptions } from './manager.ts'
-export { formatDuration, formatTokenSnapshot, GitHubAppTokenManager, hintForState } from './manager.ts'
+export { formatDuration, formatTokenSnapshot, GitHubAppTokenManager, hintForState, readPrivateKeyPem } from './manager.ts'
 export type { RefreshFailed, RefreshNotConfigured, RefreshResult, RefreshStillValid, RefreshSuccess, StatusResult, StoredToken, TokenSnapshot, TokenState } from './types.ts'
 export type { ContentBlock, TokenManagerSource, ToolDefinition, ToolRunContext, ToolsRegistry } from './tools.ts'
 export { createRefreshTool, createStatusTool } from './tools.ts'
@@ -88,18 +91,59 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
   const profile = ctx.get('profileContext') as ProfileContext | undefined
   const defaultTokenDir = profile?.dir
   const credentials = ctx.get('credentials') as CredentialsResolver | undefined
-  const managerOptions = credentials === undefined ? {} : { credentials }
+  const botLifecycle = new AbortController()
+  let installedBotKey: string | undefined
+  let syncGeneration = 0
+
+  const syncBotIdentity = async (resolved: ResolvedConfig): Promise<void> => {
+    const generation = ++syncGeneration
+    if (!resolved.configured || resolved.appId === undefined) {
+      installedBotKey = undefined
+      clearBotIdentity()
+      return
+    }
+    const key = `${resolved.appId}|${resolved.apiBaseUrl}`
+    if (key === installedBotKey) return
+    try {
+      const identity = await resolveBotIdentity(
+        resolved,
+        credentials === undefined ? {} : { credentials },
+        botLifecycle.signal,
+      )
+      if (generation !== syncGeneration) return
+      installBotIdentity(identity)
+      installedBotKey = key
+    } catch (error: unknown) {
+      if (generation !== syncGeneration) return
+      installedBotKey = undefined
+      clearBotIdentity()
+      ctx.logger?.warn(`github-agents-proxy: could not resolve the App bot identity; Agent commits will use the configured git identity: ${errorMessage(error)}`)
+    }
+  }
+
+  let manager: GitHubAppTokenManager
+  const managerOptions = {
+    ...(credentials === undefined ? {} : { credentials }),
+    onTokenAvailable: async (): Promise<void> => {
+      await syncBotIdentity(manager.config)
+    },
+  }
 
   const buildManager = async (): Promise<GitHubAppTokenManager> => {
     const resolved = resolveConfig(readConfig(config), {
       ...(defaultTokenDir === undefined ? {} : { defaultTokenDir }),
     })
-    const manager = new GitHubAppTokenManager(resolved, managerOptions)
-    await manager.initialize()
-    return manager
+    const next = new GitHubAppTokenManager(resolved, managerOptions)
+    await next.initialize()
+    return next
   }
 
-  let manager = await buildManager()
+  manager = await buildManager()
+  await syncBotIdentity(manager.config)
+  ctx.effect(() => () => {
+    botLifecycle.abort(new Error('github-agents-proxy disposed'))
+    clearBotIdentity()
+  }, 'github-agents-proxy: bot git identity')
   const source: TokenManagerSource = { current: () => manager }
 
   const tools = ctx.get('tools') as ToolsRegistry | undefined
@@ -129,7 +173,9 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
       reloadTimer = undefined
       reloading = reloading.then(async () => {
         try {
-          manager = await buildManager()
+          const next = await buildManager()
+          manager = next
+          await syncBotIdentity(next.config)
         } catch (error: unknown) {
           ctx.logger?.warn(`github-agents-proxy: kept the previous configuration because the edited value is invalid: ${errorMessage(error)}`)
         }

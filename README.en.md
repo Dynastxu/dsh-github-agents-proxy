@@ -6,8 +6,9 @@ GitHub App proxy for DeepSeek Harness. Configure one App credential set once;
 Agents then use `gh`/`git` through the App installation token, so pushes are
 attributed to the App's bot identity. The token is refreshed on demand.
 
-This stage owns only the token and `gh`/`git` authentication. Commit-author
-rewriting, commit message handling, and PR attribution are later steps.
+This stage owns the token, `gh` authentication, and Git identity injection for
+Agent child processes. Commit-history rewriting, Verified signing, and PR
+attribution are later steps.
 
 ## What it does
 
@@ -15,6 +16,10 @@ rewriting, commit message handling, and PR attribution are later steps.
 - Injects one fixed-prefix token snapshot into runtime context at conversation
   start, when the token crosses the refresh threshold, and after a successful
   refresh.
+- Derives the App bot login/user id from the App ID and private key, then
+  injects `GIT_AUTHOR_*` / `GIT_COMMITTER_*` into the Host process so Agent
+  child-process `git commit` uses the bot identity. No repository or global git
+  configuration is changed.
 - Stores the installation token in a private file (`0600` where the platform
   supports it) and refreshes it under a cross-process file lock with a
   double-check after the lock.
@@ -158,6 +163,41 @@ Reads the cached file without calling GitHub. It returns `valid`, `expiring`,
 `expired`, `missing`, `invalid`, or `unconfigured`, plus `expires_at`,
 `remaining`, `needs_refresh`, and the token file path. Use it when the status
 snapshot is absent or a workflow needs a fresh local reading.
+
+## Agent commit identity
+
+The settings page does not ask for the bot name/email. The plugin uses the
+existing App ID and private key to call:
+
+```text
+GET /app                         → slug = dsh-agents
+GET /users/dsh-agents%5Bbot%5D  → id = 354391007, login = dsh-agents[bot]
+```
+
+and derives:
+
+```text
+GIT_AUTHOR_NAME      = dsh-agents[bot]
+GIT_AUTHOR_EMAIL     = 354391007+dsh-agents[bot]@users.noreply.github.com
+GIT_COMMITTER_NAME   = dsh-agents[bot]
+GIT_COMMITTER_EMAIL  = 354391007+dsh-agents[bot]@users.noreply.github.com
+```
+
+These four variables enter only the Host process environment, where Agent
+bash/pwsh children inherit them. The plugin runs no `git config` and changes no
+repository or global git configuration; the prior values are restored on
+dispose. Commits made in an external terminal are unaffected.
+
+Limits:
+
+- Local `git commit` is authored/committed by the bot but remains
+  `verified: false`; signing/Verified is not part of this stage.
+- An Agent that explicitly runs `git commit --author=...` or overrides
+  `GIT_AUTHOR_*` can still bypass the identity.
+- A remote SSH/container git environment inherits these variables only if that
+  environment forwards them.
+- If bot identity resolution fails at startup, the plugin still loads without
+  injecting identity and retries after a successful token refresh.
 
 ## Runtime-context snapshot
 

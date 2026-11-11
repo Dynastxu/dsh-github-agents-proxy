@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as plugin from '../src/index.ts'
-import { createFixture } from './helpers.ts'
+import { createFixture, jsonResponse } from './helpers.ts'
 
 interface CapturedTool {
   readonly name: string
@@ -58,9 +58,18 @@ describe('github-agents-proxy plugin', () => {
     }
   })
 
+  afterEach(() => { vi.unstubAllGlobals() })
+
   it('loads a configured installation and reports a missing cached token', async () => {
     const fixture = await createFixture()
     const fake = fakeContext()
+    const previousName = process.env.GIT_AUTHOR_NAME
+    vi.stubGlobal('fetch', async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith('/app')) return jsonResponse({ slug: 'dsh-agents' })
+      if (url.endsWith('/users/dsh-agents%5Bbot%5D')) return jsonResponse({ id: 354391007, login: 'dsh-agents[bot]' })
+      return new Response('not found', { status: 404 })
+    })
     try {
       await fake.ctx.plugin(plugin, {
         appId: '12345',
@@ -71,10 +80,14 @@ describe('github-agents-proxy plugin', () => {
       const prompt = fake.prompts.get(plugin.GITHUB_APP_TOKEN_CONTEXT_NAME)!
       expect(prompt.text({ agent: {} })).toContain('[github-app-token] status=missing')
 
+      expect(process.env.GIT_AUTHOR_NAME).toBe('dsh-agents[bot]')
+      expect(process.env.GIT_COMMITTER_EMAIL).toBe('354391007+dsh-agents[bot]@users.noreply.github.com')
       const refresh = fake.tools.get('refresh_ghapp_token') as unknown as { name: string }
       expect(refresh.name).toBe('refresh_ghapp_token')
     } finally {
       await fake.ctx.fiber.dispose()
+      if (previousName === undefined) delete process.env.GIT_AUTHOR_NAME
+      else process.env.GIT_AUTHOR_NAME = previousName
       await fixture.cleanup()
     }
   })
