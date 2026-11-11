@@ -13,6 +13,9 @@ attribution are later steps.
 ## What it does
 
 - Adds `refresh_ghapp_token` and `check_ghapp_token_status`.
+- Shows the cached token's live state and remaining lifetime beside the settings
+  page title: not configured, not activated, active, expiring, expired, or
+  unreadable.
 - Injects one fixed-prefix token snapshot into runtime context at conversation
   start, when the token crosses the refresh threshold, and after a successful
   refresh.
@@ -72,6 +75,15 @@ active profile's volatile Config fields and writes them through the profile's
 - private-key source (file path or DSH credential reference) and value
 - token cache path, refresh threshold, and GitHub API base URL
 - whether the runtime status snapshot is injected
+
+A status badge beside the title shows the cached token's live state: `Not
+configured`, `Not activated`, `Active · 28m2s left`, `Expiring · 1m52s left`,
+`Expired`, or `Token unreadable`. Hover it for the expiry instant and the token
+file. While the page is open it reads `GET /api/github-agents-proxy/status`
+every 15 seconds; that route only reads the local token file — no GitHub
+request, no refresh lock — and the page counts down on the Host clock, one
+second at a time. Polling stops when the page closes. A Host without a Web
+carrier reports `Status unavailable`.
 
 Saving validates the positive IDs, key source, and URL, then submits through
 `ctx.configForms`. The Host receives `loader/volatile-update` and rebuilds the

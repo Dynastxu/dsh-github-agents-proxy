@@ -11,6 +11,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { en, NS, zh, type CopyKey, type Translate } from './locales.ts'
+import { describeTokenStatus, useTokenStatus, type TokenStatus } from './status.ts'
 import { CSS, STYLE_MARKER } from './styles.ts'
 
 /** Plain values projected by the Host form. */
@@ -148,6 +149,20 @@ async function write(form: ConfigForm<GithubAppSettings>, field: string, value: 
   return form.set(field, value)
 }
 
+/** Live token state beside the page title. */
+function TokenStatusBadge({ status, t }: { readonly status: TokenStatus; readonly t: Translate }): ReactNode {
+  const presentation = describeTokenStatus(status, t)
+  return (
+    <span
+      className={`ghapp-badge ghapp-badge-${presentation.tone}`}
+      title={presentation.detail === '' ? undefined : presentation.detail}
+    >
+      <span className="ghapp-badge-dot" aria-hidden="true" />
+      {presentation.text}
+    </span>
+  )
+}
+
 function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   const snapshot = useSyncExternalStore(
     listener => form.subscribe(listener),
@@ -157,6 +172,8 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [statusRevision, setStatusRevision] = useState(0)
+  const status = useTokenStatus(statusRevision)
 
   useEffect(() => {
     if (!dirty) setDraft(draftFrom(snapshot.value))
@@ -205,6 +222,7 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
       }
       setDirty(false)
       setMessage({ kind: 'ok', text: t('saved') })
+      setStatusRevision(current => current + 1)
     } catch {
       setMessage({ kind: 'error', text: t('saveFailed') })
     } finally {
@@ -228,6 +246,7 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
       setDraft({ ...EMPTY_DRAFT })
       setDirty(false)
       setMessage({ kind: 'ok', text: t('cleared') })
+      setStatusRevision(current => current + 1)
     } catch {
       setMessage({ kind: 'error', text: t('saveFailed') })
     } finally {
@@ -241,7 +260,10 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   return (
     <div className="ghapp-settings">
       <div>
-        <h2 className="ghapp-heading">{t('title')}</h2>
+        <div className="ghapp-header">
+          <h2 className="ghapp-heading">{t('title')}</h2>
+          <TokenStatusBadge status={status} t={t} />
+        </div>
         <p className="ghapp-intro">{t('intro')}</p>
       </div>
       {!snapshot.writable ? <p className="ghapp-status ghapp-status-error">{t('readonly')}</p> : null}

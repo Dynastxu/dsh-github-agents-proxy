@@ -68,6 +68,33 @@ describe('github-agents-proxy plugin', () => {
 
   afterEach(() => { vi.unstubAllGlobals() })
 
+  it('registers the settings-page status route while Connection is composed, and withdraws it', async () => {
+    const fake = fakeContext()
+    const routes = new Map<string, { readonly fetch: (request: Request) => Promise<Response> }>()
+    fake.ctx.provide('connection', {
+      fetch: {
+        register(route: { readonly path: string; readonly fetch: (request: Request) => Promise<Response> }) {
+          routes.set(route.path, route)
+          return async () => { routes.delete(route.path) }
+        },
+      },
+    })
+    try {
+      await fake.ctx.plugin(plugin)
+      const route = routes.get(plugin.TOKEN_STATUS_ROUTE)
+      expect(route).toBeDefined()
+      const response = await route!.fetch(new Request(`http://host${plugin.TOKEN_STATUS_ROUTE}`))
+      expect(response.status).toBe(200)
+      const body = await response.json() as { readonly status: string }
+      expect(body.status).toBe('unconfigured')
+
+      await fake.ctx.fiber.dispose()
+      expect(routes.size).toBe(0)
+    } finally {
+      await fake.ctx.fiber.dispose()
+    }
+  })
+
   it('loads a configured installation and reports a missing cached token', async () => {
     const fixture = await createFixture()
     const fake = fakeContext()

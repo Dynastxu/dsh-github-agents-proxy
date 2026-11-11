@@ -87,18 +87,32 @@ export interface RefreshFailed {
 /** Canonical result of `refresh_ghapp_token`. */
 export type RefreshResult = RefreshSuccess | RefreshStillValid | RefreshNotConfigured | RefreshFailed
 
-/** Canonical result of `check_ghapp_token_status`. */
-export interface StatusResult {
-  readonly ok: true
+/** Token facts shared by `check_ghapp_token_status` and the settings page. */
+export interface TokenReport {
+  /** Health at the report instant. */
   readonly status: TokenState
+  /** Whether GitHub App credentials are configured. */
   readonly configured: boolean
+  /** Whether `refresh_ghapp_token` is needed for this state. */
   readonly needs_refresh: boolean
+  /** Absolute cached-token path. */
   readonly token_file: string
+  /** Configured refresh threshold in seconds. */
   readonly threshold_seconds: number
+  /** GitHub expiry timestamp, when a token document exists. */
   readonly expires_at?: string
+  /** Whole seconds until expiry at the report instant. */
   readonly expires_in_seconds?: number
+  /** Compact remaining-time label for the same instant. */
   readonly remaining?: string
+  /** Credential fields absent from an unconfigured installation. */
   readonly missing?: readonly string[]
+  /** Why the token document is unusable, when it exists but cannot be trusted. */
   readonly message?: string
+}
+
+/** Canonical result of `check_ghapp_token_status`. */
+export interface StatusResult extends TokenReport {
+  readonly ok: true
   readonly hint?: string
 }

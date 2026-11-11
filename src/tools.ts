@@ -10,12 +10,17 @@
  */
 
 import { formatDuration, hintForState, type GitHubAppTokenManager } from './manager.ts'
-import type { RefreshResult, StatusResult, TokenState } from './types.ts'
+import type { RefreshResult, StatusResult, TokenReport, TokenSnapshot, TokenState } from './types.ts'
 
 /** A live manager, or a provider that resolves the manager after a config reload. */
 export type TokenManagerSource = GitHubAppTokenManager | { current(): GitHubAppTokenManager }
 
-function currentManager(source: TokenManagerSource): GitHubAppTokenManager {
+/**
+ * Resolve the live manager behind a source.
+ * @param source - live manager, or a provider resolving it after a config reload.
+ * @returns the manager to use for this operation.
+ */
+export function resolveManager(source: TokenManagerSource): GitHubAppTokenManager {
   return 'current' in source ? source.current() : source
 }
 
@@ -95,6 +100,29 @@ function stateNeedsRefresh(state: TokenState): boolean {
   return state !== 'valid'
 }
 
+/**
+ * Project one token snapshot into the structured facts shared by
+ * `check_ghapp_token_status` and the settings page's live status.
+ * @param snapshot - token state at one instant.
+ * @returns the report fields, omitting facts the snapshot does not carry.
+ */
+export function tokenReport(snapshot: TokenSnapshot): TokenReport {
+  return {
+    status: snapshot.state,
+    configured: snapshot.configured,
+    needs_refresh: stateNeedsRefresh(snapshot.state),
+    token_file: snapshot.tokenPath,
+    threshold_seconds: snapshot.refreshThresholdSeconds,
+    ...(snapshot.expiresAt === undefined ? {} : { expires_at: snapshot.expiresAt }),
+    ...(snapshot.expiresInSeconds === undefined ? {} : {
+      expires_in_seconds: snapshot.expiresInSeconds,
+      remaining: formatDuration(snapshot.expiresInSeconds),
+    }),
+    ...(snapshot.missing === undefined ? {} : { missing: snapshot.missing }),
+    ...(snapshot.detail === undefined ? {} : { message: snapshot.detail }),
+  }
+}
+
 function renderRefresh(value: RefreshResult): string {
   if (value.ok) {
     const gh = value.gh_configured
@@ -156,7 +184,7 @@ export function createRefreshTool(manager: TokenManagerSource): ToolDefinition<{
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      return currentManager(manager).refresh(args.force === true, exec.signal)
+      return resolveManager(manager).refresh(args.force === true, exec.signal)
     },
   }
 }
@@ -186,23 +214,12 @@ export function createStatusTool(manager: TokenManagerSource): ToolDefinition<Re
     isConcurrencySafe: () => true,
     async execute(_args, exec) {
       exec.signal.throwIfAborted()
-      const snapshot = await currentManager(manager).checkFromDisk()
+      const snapshot = await resolveManager(manager).checkFromDisk()
       exec.signal.throwIfAborted()
       const hint = hintForState(snapshot.state)
       return {
         ok: true,
-        status: snapshot.state,
-        configured: snapshot.configured,
-        needs_refresh: stateNeedsRefresh(snapshot.state),
-        token_file: snapshot.tokenPath,
-        threshold_seconds: snapshot.refreshThresholdSeconds,
-        ...(snapshot.expiresAt === undefined ? {} : { expires_at: snapshot.expiresAt }),
-        ...(snapshot.expiresInSeconds === undefined ? {} : {
-          expires_in_seconds: snapshot.expiresInSeconds,
-          remaining: formatDuration(snapshot.expiresInSeconds),
-        }),
-        ...(snapshot.missing === undefined ? {} : { missing: snapshot.missing }),
-        ...(snapshot.detail === undefined ? {} : { message: snapshot.detail }),
+        ...tokenReport(snapshot),
         ...(hint === undefined ? {} : { hint }),
       }
     },

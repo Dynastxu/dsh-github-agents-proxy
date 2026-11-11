@@ -9,6 +9,7 @@ DeepSeek Harness 的 GitHub App 代理。只需配置一次 App 凭证，之后 
 ## 功能
 
 - 提供 `refresh_ghapp_token` 与 `check_ghapp_token_status` 两个工具。
+- 设置页标题旁实时显示令牌状态与剩余时间：未配置、未激活、已激活、即将过期、已过期、令牌不可读。
 - 在对话开始时注入一次固定前缀的令牌快照；当令牌进入刷新阈值内、刷新成功后再次注入。
 - 从 App ID 和私钥解析 App bot 的 login / user id，并向 Host 进程注入 `GIT_AUTHOR_*`、`GIT_COMMITTER_*`，让 Agent 子进程里的 `git commit` 自动使用 bot 身份；不修改仓库或全局 git 配置。
 - 提供 `commit_changes` 工具：单次提交设置 bot 身份，并自动追加用户的 `Co-authored-by` trailer；可在设置页阻断裸 `git commit`，并注入 Agent 提交规范提示。
@@ -51,6 +52,8 @@ patch 会插入 `github-agents-proxy` 行。在 profile 的 `cordis.patch.yml` �
 - 私钥来源（文件路径 / DSH 凭据引用）及对应值
 - 令牌缓存文件、刷新阈值、GitHub API 地址
 - 是否注入运行时状态快照
+
+标题右侧的状态徽标显示缓存令牌的实时状态：`未配置`、`未激活`、`已激活 · 剩余 28m2s`、`即将过期 · 剩余 1m52s`、`已过期` 或 `令牌不可读`；悬停可看有效期和令牌文件。页面打开期间每 15 秒读取一次 Host 的 `GET /api/github-agents-proxy/status`，该路由只读取本地令牌文件，不访问 GitHub、不获取刷新锁；倒计时以 Host 时钟为准，每秒递减，页面关闭后停止轮询。Host 没有 Web 通道时显示 `状态不可用`。
 
 保存时先校验正整数 ID、私钥来源和 URL，再通过 `ctx.configForms` 提交；Host 收到 `loader/volatile-update` 后重建令牌管理器，下一次工具调用和状态注入立即使用新配置。浏览器半随 Web 客户端加载，升级插件后需要重启 DSH Host（必要时再刷新页面）才会出现该设置页。
 

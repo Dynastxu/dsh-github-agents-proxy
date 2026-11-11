@@ -12,6 +12,26 @@ export const CSS = `
   font: inherit;
 }
 .ghapp-heading { margin: 0; font-size: 18px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.ghapp-header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 4px; }
+.ghapp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ghapp-badge-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ghapp-badge-active { color: var(--dsw-alias-state-success-primary); }
+.ghapp-badge-warning { color: var(--dsw-alias-state-warn-label); }
+.ghapp-badge-error { color: var(--dsw-alias-state-error-primary); }
+.ghapp-badge-idle { color: var(--dsw-alias-label-secondary); }
 .ghapp-intro, .ghapp-note, .ghapp-hint, .ghapp-loading { color: var(--dsw-alias-label-secondary); }
 .ghapp-intro, .ghapp-note { margin: 0; line-height: 1.5; }
 .ghapp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }

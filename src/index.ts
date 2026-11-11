@@ -1,12 +1,13 @@
 /**
  * GitHub App installation-token manager for DeepSeek Harness.
  *
- * The plugin contributes two tools, one runtime-context snapshot, and a
- * browser settings page over volatile Config fields. It never starts a daemon
- * or background loop: a refresh happens only when an Agent calls
- * `refresh_ghapp_token`, and the snapshot is re-evaluated during normal prompt
- * assembly. Token state is shared across Agents through a private file guarded
- * by a cross-process lock.
+ * The plugin contributes two tools, one runtime-context snapshot, a status
+ * endpoint for its settings page, and a browser settings page over volatile
+ * Config fields. It never starts a daemon or background loop: a refresh happens
+ * only when an Agent calls `refresh_ghapp_token`, the snapshot is re-evaluated
+ * during normal prompt assembly, and the settings page polls local token state
+ * only while it is open. Token state is shared across Agents through a private
+ * file guarded by a cross-process lock.
  *
  * @module @dynastxu/dsh-github-agents-proxy
  */
@@ -28,6 +29,8 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 import { GitHubAppTokenManager, type CredentialsResolver } from './manager.ts'
+import { TOKEN_STATUS_ROUTE } from './status-contract.ts'
+import { serveTokenStatus } from './status.ts'
 import { createRefreshTool, createStatusTool, type TokenManagerSource, type ToolsRegistry } from './tools.ts'
 
 export { Config } from './config.ts'
@@ -37,12 +40,16 @@ export type { BotIdentity, BotIdentityOptions } from './bot.ts'
 export { clearBotIdentity, installBotIdentity, resolveBotIdentity } from './bot.ts'
 export type { CommitArgs, CommitFailure, CommitResult, CommitRuntime, CommitSuccess, SubprocessLike, WorkingDirectoryLike } from './commit.ts'
 export { createCommitTool } from './commit.ts'
+export { formatDuration } from './duration.ts'
 export { isGitCommitCommand } from './guard.ts'
 export type { CredentialsResolver, ManagerOptions } from './manager.ts'
-export { formatDuration, formatTokenSnapshot, GitHubAppTokenManager, hintForState, readPrivateKeyPem } from './manager.ts'
-export type { RefreshFailed, RefreshNotConfigured, RefreshResult, RefreshStillValid, RefreshSuccess, StatusResult, StoredToken, TokenSnapshot, TokenState } from './types.ts'
+export { formatTokenSnapshot, GitHubAppTokenManager, hintForState, readPrivateKeyPem } from './manager.ts'
+export { TOKEN_STATUS_ROUTE } from './status-contract.ts'
+export type { TokenStatusResponse } from './status-contract.ts'
+export { serveTokenStatus } from './status.ts'
+export type { RefreshFailed, RefreshNotConfigured, RefreshResult, RefreshStillValid, RefreshSuccess, StatusResult, StoredToken, TokenReport, TokenSnapshot, TokenState } from './types.ts'
 export type { ContentBlock, TokenManagerSource, ToolDefinition, ToolRunContext, ToolsRegistry } from './tools.ts'
-export { createRefreshTool, createStatusTool } from './tools.ts'
+export { createRefreshTool, createStatusTool, tokenReport } from './tools.ts'
 
 /** Cordis plugin name used by Loader diagnostics and profile patch rows. */
 export const name = 'github-agents-proxy'
@@ -119,6 +126,21 @@ declare module '@deepseek-ai/cordis' {
 
 interface ProfileContext {
   readonly dir?: string
+}
+
+/** One exact Fetch route as the Host Connection service accepts it. */
+interface FetchRoute {
+  readonly path: string
+  readonly methods: readonly ('GET' | 'HEAD' | 'POST')[]
+  readonly requestBody: 'buffered'
+  readonly fetch: (request: Request) => Promise<Response>
+}
+
+/** The slice of the Connection service this plugin registers into. */
+interface FetchRouteRegistry {
+  readonly fetch: {
+    register(route: FetchRoute): () => Promise<void>
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -207,6 +229,23 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
     workingDirectory: () => ctx.get('workingDirectory') as WorkingDirectoryLike | undefined,
   }
   ctx.effect(() => tools.register(createCommitTool(commitRuntime)))
+
+  // The status route is optional: compositions without a Web carrier keep the
+  // plugin loadable, and the settings page then reports the status as
+  // unavailable instead of showing stale facts.
+  ctx.inject(['connection'], (scope) => {
+    const connection = scope.get('connection') as FetchRouteRegistry | undefined
+    if (connection === undefined) return
+    scope.effect(() => {
+      const dispose = connection.fetch.register({
+        path: TOKEN_STATUS_ROUTE,
+        methods: ['GET'],
+        requestBody: 'buffered',
+        fetch: () => serveTokenStatus(source),
+      })
+      return () => { void dispose() }
+    }, 'github-agents-proxy: token status route')
+  })
 
   const gitCommitMatcher = (command: unknown): boolean =>
     typeof command === 'string' && isGitCommitCommand(command)

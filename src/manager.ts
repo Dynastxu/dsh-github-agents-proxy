@@ -12,11 +12,14 @@
 
 import { readFile } from 'node:fs/promises'
 import type { ResolvedConfig } from './config.ts'
+import { formatDuration } from './duration.ts'
 import { configureGhAuth, type GhAuthResult } from './gh.ts'
 import { exchangeInstallationToken } from './github.ts'
 import { createAppJwt, parsePrivateKey } from './jwt.ts'
 import { FileTokenStore, TokenFileError } from './token-store.ts'
 import type { RefreshResult, StoredToken, TokenSnapshot, TokenState } from './types.ts'
+
+export { formatDuration } from './duration.ts'
 
 /** Resolved credential lookup exposed by `ctx.credentials`. */
 export interface CredentialsResolver {
@@ -93,29 +96,6 @@ export async function readPrivateKeyPem(
 }
 
 const MAX_ERROR_MESSAGE_CHARS = 600
-
-/**
- * Render a compact remaining-time label.
- * @param totalSeconds - remaining whole seconds.
- * @returns a label such as `45s`, `1m52s`, `28m2s`, or `1h2m`.
- */
-export function formatDuration(totalSeconds: number): string {
-  const seconds = Math.max(0, Math.floor(totalSeconds))
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) {
-    const rest = seconds % 60
-    return rest === 0 ? `${minutes}m` : `${minutes}m${rest}s`
-  }
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) {
-    const rest = minutes % 60
-    return rest === 0 ? `${hours}h` : `${hours}h${rest}m`
-  }
-  const days = Math.floor(hours / 24)
-  const rest = hours % 24
-  return rest === 0 ? `${days}d` : `${days}d${rest}h`
-}
 
 /**
  * One stable runtime-context block for a token state.
