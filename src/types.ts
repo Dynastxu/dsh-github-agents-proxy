@@ -87,6 +87,25 @@ export interface RefreshFailed {
 /** Canonical result of `refresh_ghapp_token`. */
 export type RefreshResult = RefreshSuccess | RefreshStillValid | RefreshNotConfigured | RefreshFailed
 
+/** A usable installation token for one GitHub request. */
+export type TokenAccess =
+  | {
+    readonly ok: true
+    /** Installation access token; never returned to the model. */
+    readonly token: string
+    /** GitHub-provided expiry of the token. */
+    readonly expires_at: string
+    /** Whether this call performed the App-JWT exchange. */
+    readonly refreshed: boolean
+  }
+  | {
+    readonly ok: false
+    /** Why no usable token is available. */
+    readonly message: string
+    /** Actionable next step. */
+    readonly hint: string
+  }
+
 /** Token facts shared by `check_ghapp_token_status` and the settings page. */
 export interface TokenReport {
   /** Health at the report instant. */

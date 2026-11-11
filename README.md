@@ -4,7 +4,7 @@
 
 DeepSeek Harness 的 GitHub App 代理。只需配置一次 App 凭证，之后 Agent 通过 `gh`/`git` 访问 GitHub 时使用 Installation Token，使推送归属于该 App 的 bot 身份；令牌按需刷新。
 
-本阶段负责令牌、`gh` 认证和 Agent 子进程的 Git 身份注入。提交历史改写、Verified 签名和 PR 归属留到后续步骤。
+本阶段负责令牌、`gh` 认证、Agent 子进程的 Git 身份注入和用 App 身份创建 PR。提交历史改写和 Verified 签名留到后续步骤。
 
 ## 功能
 
@@ -13,6 +13,7 @@ DeepSeek Harness 的 GitHub App 代理。只需配置一次 App 凭证，之后 
 - 在对话开始时注入一次固定前缀的令牌快照；当令牌进入刷新阈值内、刷新成功后再次注入。
 - 从 App ID 和私钥解析 App bot 的 login / user id，并向 Host 进程注入 `GIT_AUTHOR_*`、`GIT_COMMITTER_*`，让 Agent 子进程里的 `git commit` 自动使用 bot 身份；不修改仓库或全局 git 配置。
 - 提供 `commit_changes` 工具：单次提交设置 bot 身份，并自动追加用户的 `Co-authored-by` trailer；可在设置页阻断裸 `git commit`，并注入 Agent 提交规范提示。
+- 提供 `create_pull_request` 工具：用 Installation Token 调用 GitHub REST API 创建 PR，PR 归属于 App bot；不提交、不推送。
 - 把 Installation Token 存入私有文件（平台支持时权限为 `0600`），刷新时持有跨进程文件锁，拿到锁后再次检查过期时间。
 - 不启动守护进程、定时器、计划任务或后台 job。只有 Agent 调用刷新工具时才会访问 GitHub；状态在正常的提示词组装过程中计算。
 
@@ -126,6 +127,25 @@ refs:
 ### `check_ghapp_token_status`
 
 只读取本地缓存文件，不访问 GitHub。返回 `valid`、`expiring`、`expired`、`missing`、`invalid` 或 `unconfigured`，并附带 `expires_at`、`remaining`、`needs_refresh` 和令牌文件路径。状态快照缺失或工作流需要重新读取本地状态时使用。
+
+### `create_pull_request`
+
+用 Installation Token 直接调用 `POST /repos/{owner}/{repo}/pulls` 创建 PR，GitHub 因此把 PR 归属于 App bot 账号。工具不提交、不推送：`head` 分支必须已经存在于远端。
+
+| 参数 | 说明 |
+|---|---|
+| `title` | PR 标题，必填 |
+| `body` | PR 描述，Markdown |
+| `base` | 目标分支；默认仓库默认分支（`GET /repos/{owner}/{repo}` 的 `default_branch`） |
+| `head` | 源分支；默认工作目录检出的分支 |
+| `draft` | 是否创建草稿 PR |
+| `repo` | `owner/name`；默认从工作目录的 `origin` remote 解析，支持 https、`ssh://`、`git@host:owner/name` 和 GitHub Enterprise 主机 |
+
+返回 `number`、`url`、`repository`、`head`、`base`、`draft`、`author`、`created`。已经存在同一个 `head` 的 open PR 时不重复创建，而是返回该 PR 并带 `created=false`，因此重试同一个调用会收敛。
+
+失败返回结构化 `message` 和可操作的 `hint`：401 提示用 `refresh_ghapp_token` 换令牌；403 提示 Installation 权限；404 提示仓库或分支名错误、仓库不在 Installation 范围内；422 提示先推送 `head` 分支。
+
+限制：工具只创建 PR，不 push、不改动远端分支；草稿 PR 是否可用取决于仓库设置；未推送的本地提交不会出现在 PR 里。
 
 ## Agent 提交身份
 
