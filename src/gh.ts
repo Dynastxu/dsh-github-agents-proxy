@@ -4,7 +4,7 @@
  * DSH strips credential-shaped ambient variables from child processes, so
  * exporting `GH_TOKEN` from the Host would not reach a bash-started `gh`.
  * Writing the token through `gh auth login --with-token` instead makes plain
- * `gh` (and, after `gh auth setup-git`, git's credential helper) use it.
+ * `gh` use it. No global git credential helper is installed.
  *
  * @module @dynastxu/dsh-github-agents-proxy/gh
  */
@@ -109,12 +109,5 @@ export async function configureGhAuth(token: string, apiBaseUrl: string, signal:
   const hostname = ghHostname(apiBaseUrl)
   const login = await runGh(['auth', 'login', '--hostname', hostname, '--with-token'], token, signal)
   if (login.code !== 0) return { configured: false, message: failure(login) }
-  const setup = await runGh(['auth', 'setup-git', '--hostname', hostname], undefined, signal)
-  if (setup.code !== 0) {
-    return {
-      configured: true,
-      message: `gh auth login succeeded, but gh auth setup-git failed: ${failure(setup)}`,
-    }
-  }
   return { configured: true }
 }

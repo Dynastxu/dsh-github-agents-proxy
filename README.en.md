@@ -83,7 +83,7 @@ The browser half loads with the Web client; restart the DSH Host after upgrading
 | `refreshThresholdSeconds` | `300` | Refresh when less than this many seconds remain. `0` refreshes only an expired token. |
 | `apiBaseUrl` | `https://api.github.com` | GitHub API origin, including a GitHub Enterprise `api/v3` path when needed. |
 | `contextInjection` | `true` | Inject the runtime-context status snapshot. |
-| `configureGh` | `true` | Run `gh auth login --with-token` and `gh auth setup-git` after refresh so plain `gh`/`git` commands use the token. |
+| `configureGh` | `true` | Run `gh auth login --with-token` after refresh so plain `gh` commands use the token; global git settings are left untouched. |
 
 ### Keep the private key out of the repository
 
@@ -183,9 +183,10 @@ accumulate one status message per step.
 
 ## Use the token with gh
 
-After a successful refresh the plugin runs `gh auth login --with-token` and
-`gh auth setup-git`, so plain `gh` commands use the token. DSH's shell executor
-strips credential-shaped variables inherited from the Host process, so setting
+After a successful refresh the plugin runs `gh auth login --with-token`, so
+plain `gh` commands use the token. It does not run `gh auth setup-git` and does
+not write the global git `credential.helper`. DSH's shell executor strips
+credential-shaped variables inherited from the Host process, so setting
 `GH_TOKEN` in the Host does not reach bash. The token file remains available as
 a manual fallback:
 
@@ -220,10 +221,12 @@ change.
   bounded to ten seconds and honors tool cancellation.
 - No token, JWT, or private-key material is returned to the model. GitHub error
   bodies are truncated before they become tool output.
-- `configureGh: true` runs `gh auth login --with-token` and `gh auth setup-git`,
-  which write gh's shared credential store and the global git
-  `credential.helper`; set it to `false` to avoid those side effects and set
-  `GH_TOKEN` from the token file manually.
+- `configureGh: true` runs `gh auth login --with-token`, which writes only gh's
+  shared credential store; global git settings are untouched. Set it to `false`
+  to avoid that side effect and set `GH_TOKEN` from the token file manually.
+- Older builds ran `gh auth setup-git` and may have left a global
+  `credential.https://github.com.helper`; remove it once with
+  `git config --global --unset-all credential.https://github.com.helper`.
 
 ## Non-goals
 

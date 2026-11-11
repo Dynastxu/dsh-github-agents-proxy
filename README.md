@@ -64,7 +64,7 @@ patch 会插入 `github-agents-proxy` 行。在 profile 的 `cordis.patch.yml` �
 | `refreshThresholdSeconds` | `300` | 剩余时间小于该秒数时刷新。设为 `0` 时只刷新已过期令牌。 |
 | `apiBaseUrl` | `https://api.github.com` | GitHub API 地址；GitHub Enterprise 可带 `api/v3` 路径。 |
 | `contextInjection` | `true` | 是否注入运行时上下文状态快照。 |
-| `configureGh` | `true` | 刷新成功后执行 `gh auth login --with-token` 和 `gh auth setup-git`，让普通 `gh`/`git` 命令直接使用该令牌。 |
+| `configureGh` | `true` | 刷新成功后执行 `gh auth login --with-token`，让普通 `gh` 命令直接使用该令牌；不修改全局 git 配置。 |
 
 ### 私钥不要进入仓库
 
@@ -140,7 +140,7 @@ WARN: The github-app-token is about to expire. Use refresh_ghapp_token to refres
 
 ## 把令牌交给 gh
 
-刷新成功后，插件会执行 `gh auth login --with-token` 和 `gh auth setup-git`，因此普通 `gh` 命令可直接使用。DSH 的 shell 执行器会擦除从宿主进程继承的凭证类环境变量，所以不能依赖宿主进程的 `GH_TOKEN`。如需手工兜底，也可以从令牌文件读取：
+刷新成功后，插件会执行 `gh auth login --with-token`，因此普通 `gh` 命令可直接使用。它不执行 `gh auth setup-git`，也不会写入全局 git `credential.helper`。DSH 的 shell 执行器会擦除从宿主进程继承的凭证类环境变量，所以不能依赖宿主进程的 `GH_TOKEN`。如需手工兜底，也可以从令牌文件读取：
 
 ```sh
 TOKEN_FILE="${DSH_HOME:-$HOME/.dsh}/profiles/web/github-app-token.json"
@@ -164,7 +164,8 @@ gh pr list
 - 令牌文件以仅所有者可读写的权限创建（`0600`）；Windows 上与 DSH 其他文件存储一样尽力而为。
 - 废弃的锁在两分钟后可被回收；正常等待锁最多十秒，并响应工具取消。
 - 不会把令牌、JWT 或私钥返回给模型。GitHub 错误响应体在进入工具输出前会截断。
-- `configureGh: true` 会运行 `gh auth login --with-token` 和 `gh auth setup-git`，写入 gh 的共享凭据存储和全局 git `credential.helper`；不需要自动登录时设为 `false`，此时用令牌文件手工设置 `GH_TOKEN`。
+- `configureGh: true` 会运行 `gh auth login --with-token`，只写入 gh 的共享凭据存储，不触碰全局 git 配置；不需要自动登录时设为 `false`，此时用令牌文件手工设置 `GH_TOKEN`。
+- 旧构建曾执行 `gh auth setup-git`，给全局 git 写入 `credential.https://github.com.helper`。升级后如仍存在，执行 `git config --global --unset-all credential.https://github.com.helper` 删除一次。
 
 ## 非目标
 
