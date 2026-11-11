@@ -84,9 +84,10 @@ and no Save button are required:
 The status line in the identity card shows the cached token's live state:
 `Not configured`, `Not activated`, `Active · 28m2s left`, `Expiring · 1m52s
 left`, `Expired`, or `Token unreadable`. Hover it for the expiry instant and
-the token file. The avatar shows the App owner's image from `GET /app` once the
-Host has resolved the bot identity, and falls back to the GitHub mark while the
-identity is unresolved or the image fails to load. While the page is open it
+the token file. The avatar shows the App's own image from the bot user response
+once the Host has resolved the bot identity, falling back to the App owner's
+avatar and finally to the GitHub mark while the identity is unresolved or the
+image fails to load. While the page is open it
 reads `GET /api/github-agents-proxy/status` every 15 seconds; that route only
 reads the local token file and cached identity — no GitHub request, no refresh
 lock — and the page counts down on the Host clock, one second at a time.

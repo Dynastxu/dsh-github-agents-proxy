@@ -15,11 +15,11 @@ import { resolveManager, tokenReport, type TokenManagerSource } from './tools.ts
 /**
  * Answer one live-status request.
  *
- * The App owner avatar comes from the identity the plugin already resolved at
- * load or after a refresh; this route never asks GitHub for it.
+ * The App avatar comes from the identity the plugin already resolved at load
+ * or after a refresh; this route never asks GitHub for it.
  * @param source - token manager owner shared with the tools and settings form.
  * @param now - Host clock in epoch milliseconds.
- * @param appAvatarUrl - avatar of the resolved App owner, undefined until the Host resolves it.
+ * @param appAvatarUrl - avatar of the resolved App bot, undefined until the Host resolves it.
  * @returns an uncached JSON response carrying the current token facts.
  */
 export async function serveTokenStatus(

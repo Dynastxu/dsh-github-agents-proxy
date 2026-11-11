@@ -17,8 +17,8 @@ export interface TokenStatusResponse extends TokenReport {
   /** Host clock at the response instant, so the page counts down against the Host clock. */
   readonly server_time: string
   /**
-   * App owner avatar URL resolved from `GET /app` when the Host fetched the bot
-   * identity, so the settings page can show the App's owner.
+   * App avatar URL from the bot user response, exposed once the Host has
+   * resolved the identity so the settings page can show the App's own avatar.
    */
   readonly app_avatar_url?: string
 }
