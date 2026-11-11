@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     name: CI
@@ -26,9 +30,7 @@ jobs:
       - name: Upload build output
         uses: actions/upload-artifact@v7
         with:
-          name: mics-out
-          path: |
-            apps/desktop/out
-            plugins/*/dist
+          name: lib
+          path: lib
           if-no-files-found: error
           retention-days: 7
