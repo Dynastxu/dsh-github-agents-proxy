@@ -2,6 +2,7 @@
   "name": "@dynastxu/dsh-github-agents-proxy",
   "version": "0.1.0",
   "description": "GitHub App proxy for DeepSeek Harness agent changes: installation-token auth and gh/git attribution.",
+  "packageManager": "pnpm@12.16.1",
   "keywords": [
     "deepseek",
     "harness",
