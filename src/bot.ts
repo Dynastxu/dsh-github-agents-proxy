@@ -22,6 +22,8 @@ export interface BotIdentity {
   readonly userId: number
   /** App slug used to derive the login. */
   readonly appSlug: string
+  /** Avatar URL of the App owner from `GET /app`, when GitHub reports one. */
+  readonly avatarUrl?: string
 }
 
 /** Runtime overrides used by tests and the Host adapter. */
@@ -105,6 +107,10 @@ export async function resolveBotIdentity(
   }
   const slug = app.slug.trim()
   const login = `${slug}[bot]`
+  const owner = isRecord(app.owner) ? app.owner : undefined
+  const avatarUrl = owner !== undefined && typeof owner.avatar_url === 'string'
+    ? owner.avatar_url.trim()
+    : ''
   const user = await getJson(
     `${config.apiBaseUrl}/users/${encodeURIComponent(login)}`,
     {},
@@ -120,6 +126,7 @@ export async function resolveBotIdentity(
     email: `${user.id}+${user.login}@users.noreply.github.com`,
     userId: user.id,
     appSlug: slug,
+    ...(avatarUrl === '' ? {} : { avatarUrl }),
   }
 }
 

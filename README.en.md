@@ -71,27 +71,36 @@ at load with the missing field names.
 ## Web settings page
 
 The browser half registers **Settings → GitHub App token**. It edits the
-active profile's volatile Config fields and writes them through the profile's
-`cordis.patch.yml`, so no hand-editing is required:
+active profile's volatile Config fields and writes them into the profile's
+`cordis.patch.yml` about half a second after the last edit, so no hand-editing
+and no Save button are required:
 
 - App ID and Installation ID
-- private-key source (file path or DSH credential reference) and value
+- private-key source (file path or DSH credential reference) and value; the
+  Desktop app offers a folder button that picks the PEM file directly
 - token cache path, refresh threshold, and GitHub API base URL
 - whether the runtime status snapshot is injected
 
-A status badge beside the title shows the cached token's live state: `Not
-configured`, `Not activated`, `Active · 28m2s left`, `Expiring · 1m52s left`,
-`Expired`, or `Token unreadable`. Hover it for the expiry instant and the token
-file. While the page is open it reads `GET /api/github-agents-proxy/status`
-every 15 seconds; that route only reads the local token file — no GitHub
-request, no refresh lock — and the page counts down on the Host clock, one
-second at a time. Polling stops when the page closes. A Host without a Web
-carrier reports `Status unavailable`.
+The status line in the identity card shows the cached token's live state:
+`Not configured`, `Not activated`, `Active · 28m2s left`, `Expiring · 1m52s
+left`, `Expired`, or `Token unreadable`. Hover it for the expiry instant and
+the token file. The avatar shows the App owner's image from `GET /app` once the
+Host has resolved the bot identity, and falls back to the GitHub mark while the
+identity is unresolved or the image fails to load. While the page is open it
+reads `GET /api/github-agents-proxy/status` every 15 seconds; that route only
+reads the local token file and cached identity — no GitHub request, no refresh
+lock — and the page counts down on the Host clock, one second at a time.
+Polling stops when the page closes. A Host without a Web carrier reports
+`Status unavailable`.
 
-Saving validates the positive IDs, key source, and URL, then submits through
-`ctx.configForms`. The Host receives `loader/volatile-update` and rebuilds the
-token manager, so the next tool call and status injection use the new values.
-The browser half loads with the Web client; restart the DSH Host after upgrading
+Each write validates the positive IDs, key source, and URL, then submits one
+atomic mutation through `ctx.configForms`. App ID, Installation ID, and the
+private key are written only when all three are present or all are empty, so a
+half-filled credential set cannot break the next load; the private-key row
+states this while the set is incomplete. **Reset** in the card clears every
+value. The Host receives `loader/volatile-update` and rebuilds the token
+manager, so the next tool call and status injection use the new values. The
+browser half loads with the Web client; restart the DSH Host after upgrading
 (and reload the page if needed) to see the page.
 
 ## Configuration

@@ -256,7 +256,7 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
         path: TOKEN_STATUS_ROUTE,
         methods: ['GET'],
         requestBody: 'buffered',
-        fetch: () => serveTokenStatus(source),
+        fetch: () => serveTokenStatus(source, Date.now, () => currentBotIdentity?.avatarUrl),
       })
       return () => { void dispose() }
     }, 'github-agents-proxy: token status route')

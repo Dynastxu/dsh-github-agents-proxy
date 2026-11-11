@@ -47,16 +47,16 @@ patch 会插入 `github-agents-proxy` 行。在 profile 的 `cordis.patch.yml` �
 
 ## Web 设置页
 
-插件的浏览器半注册在 **Settings → GitHub App 令牌**。页面直接编辑当前 profile 的 volatile Config 字段，保存后写入 profile 的 `cordis.patch.yml`，无需手工改文件：
+插件的浏览器半注册在 **Settings → GitHub App 令牌**。页面直接编辑当前 profile 的 volatile Config 字段，停止编辑约半秒后自动写入 profile 的 `cordis.patch.yml`，无需手工改文件，也没有保存按钮：
 
 - App ID、Installation ID
-- 私钥来源（文件路径 / DSH 凭据引用）及对应值
+- 私钥来源（文件路径 / DSH 凭据引用）及对应值；Desktop 应用中可用文件夹按钮直接选择 PEM 文件
 - 令牌缓存文件、刷新阈值、GitHub API 地址
 - 是否注入运行时状态快照
 
-标题右侧的状态徽标显示缓存令牌的实时状态：`未配置`、`未激活`、`已激活 · 剩余 28m2s`、`即将过期 · 剩余 1m52s`、`已过期` 或 `令牌不可读`；悬停可看有效期和令牌文件。页面打开期间每 15 秒读取一次 Host 的 `GET /api/github-agents-proxy/status`，该路由只读取本地令牌文件，不访问 GitHub、不获取刷新锁；倒计时以 Host 时钟为准，每秒递减，页面关闭后停止轮询。Host 没有 Web 通道时显示 `状态不可用`。
+标题卡下方的状态行显示缓存令牌的实时状态：`未配置`、`未激活`、`已激活 · 剩余 28m2s`、`即将过期 · 剩余 1m52s`、`已过期` 或 `令牌不可读`；悬停可看有效期和令牌文件。身份卡头像优先使用 App owner 的头像（Host 解析 bot 身份时从 `GET /app` 取得）；Host 尚未解析出身份或图片加载失败时回退到 GitHub 图标。页面打开期间每 15 秒读取一次 Host 的 `GET /api/github-agents-proxy/status`，该路由只读取本地令牌文件和已缓存的身份，不访问 GitHub、不获取刷新锁；倒计时以 Host 时钟为准，每秒递减，页面关闭后停止轮询。Host 没有 Web 通道时显示 `状态不可用`。
 
-保存时先校验正整数 ID、私钥来源和 URL，再通过 `ctx.configForms` 提交；Host 收到 `loader/volatile-update` 后重建令牌管理器，下一次工具调用和状态注入立即使用新配置。浏览器半随 Web 客户端加载，升级插件后需要重启 DSH Host（必要时再刷新页面）才会出现该设置页。
+每次写入先校验正整数 ID、私钥来源和 URL，再通过 `ctx.configForms` 以一次原子变更提交。App ID、Installation ID 和私钥三项齐全或全空时才会写入，避免半套凭证让插件在加载时失败；页面会在私钥行下方提示这一点。右上角的 **重置** 清空全部配置。Host 收到 `loader/volatile-update` 后重建令牌管理器，下一次工具调用和状态注入立即使用新配置。浏览器半随 Web 客户端加载，升级插件后需要重启 DSH Host（必要时再刷新页面）才会出现该设置页。
 
 ## 配置
 
