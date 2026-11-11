@@ -62,16 +62,101 @@ async function write(form: ConfigForm<GithubAppSettings>, field: string, value: 
   return form.set(field, value)
 }
 
-/** Live token state beside the page title. */
-function TokenStatusBadge({ status, t }: { readonly status: TokenStatus; readonly t: Translate }): ReactNode {
+/** GitHub mark used as the default App avatar. */
+function GitHubMark(): ReactNode {
+  return (
+    <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+    </svg>
+  )
+}
+
+/** Local live token state below the page title. */
+function TokenStatusLine({ status, t }: { readonly status: TokenStatus; readonly t: Translate }): ReactNode {
   const presentation = describeTokenStatus(status, t)
   return (
     <span
-      className={`ghapp-badge ghapp-badge-${presentation.tone}`}
+      className="ghapp-token-status"
+      data-tone={presentation.tone}
       title={presentation.detail === '' ? undefined : presentation.detail}
     >
-      <span className="ghapp-badge-dot" aria-hidden="true" />
+      <span className="ghapp-status-dot" aria-hidden="true" />
       {presentation.text}
+    </span>
+  )
+}
+
+/** Label, hint, and the control they describe on one settings row. */
+function FieldRow({ label, hint, children }: {
+  readonly label: string
+  readonly hint: string
+  readonly children: ReactNode
+}): ReactNode {
+  return (
+    <div className="ghapp-row">
+      <div className="ghapp-row-text">
+        <span className="ghapp-row-title">{label}</span>
+        <span className="ghapp-row-desc">{hint}</span>
+      </div>
+      <div className="ghapp-row-control">{children}</div>
+    </div>
+  )
+}
+
+/** A labeled two-state toggle. */
+function SwitchRow({ label, hint, checked, disabled, onChange }: {
+  readonly label: string
+  readonly hint: string
+  readonly checked: boolean
+  readonly disabled: boolean
+  readonly onChange: (next: boolean) => void
+}): ReactNode {
+  return (
+    <div className="ghapp-row">
+      <div className="ghapp-row-text">
+        <span className="ghapp-row-title">{label}</span>
+        <span className="ghapp-row-desc">{hint}</span>
+      </div>
+      <div className="ghapp-row-control ghapp-row-control-end">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          aria-label={label}
+          disabled={disabled}
+          className="ghapp-switch"
+          onClick={() => { onChange(!checked) }}
+        >
+          <span className="ghapp-switch-thumb" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** Select control with the settings chevron drawn over a native `<select>`. */
+function SelectControl({ label, value, disabled, onChange, children }: {
+  readonly label: string
+  readonly value: string
+  readonly disabled: boolean
+  readonly onChange: (value: string) => void
+  readonly children: ReactNode
+}): ReactNode {
+  return (
+    <span className="ghapp-select-wrap">
+      <select
+        className="ghapp-select"
+        aria-label={label}
+        value={value}
+        disabled={disabled}
+        onChange={event => { onChange(event.currentTarget.value) }}
+      >
+        {children}
+      </select>
+      <svg className="ghapp-select-chevron" viewBox="0 0 16 16" width="12" height="12" fill="none"
+        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4 6l4 4 4-4" />
+      </svg>
     </span>
   )
 }
@@ -172,79 +257,61 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
 
   return (
     <div className="ghapp-settings">
-      <div>
-        <div className="ghapp-header">
-          <h2 className="ghapp-heading">{t('title')}</h2>
-          <TokenStatusBadge status={status} t={t} />
+      <div className="ghapp-card ghapp-identity">
+        <span className="ghapp-avatar" aria-hidden="true"><GitHubMark /></span>
+        <div className="ghapp-identity-copy">
+          <span className="ghapp-name">{t('title')}</span>
+          <TokenStatusLine status={status} t={t} />
         </div>
-        <p className="ghapp-intro">{t('intro')}</p>
       </div>
       {!snapshot.writable ? <p className="ghapp-status ghapp-status-error">{t('readonly')}</p> : null}
-      <div className="ghapp-grid">
-        <label className="ghapp-field">
-          <span className="ghapp-label">{t('appId')}</span>
-          <input className="ghapp-input" inputMode="numeric" value={draft.appId} disabled={!editable} onChange={event => update({ appId: event.currentTarget.value })} />
-          <span className="ghapp-hint">{t('appIdHint')}</span>
-        </label>
-        <label className="ghapp-field">
-          <span className="ghapp-label">{t('installationId')}</span>
-          <input className="ghapp-input" inputMode="numeric" value={draft.installationId} disabled={!editable} onChange={event => update({ installationId: event.currentTarget.value })} />
-          <span className="ghapp-hint">{t('installationIdHint')}</span>
-        </label>
-        <label className="ghapp-field">
-          <span className="ghapp-label">{t('keySource')}</span>
-          <select className="ghapp-select" value={draft.keySource} disabled={!editable} onChange={event => update({ keySource: event.currentTarget.value === 'ref' ? 'ref' : 'path' })}>
+      <div className="ghapp-card ghapp-rows">
+        <FieldRow label={t('appId')} hint={t('appIdHint')}>
+          <input className="ghapp-input" inputMode="numeric" aria-label={t('appId')}
+            value={draft.appId} disabled={!editable} onChange={event => update({ appId: event.currentTarget.value })} />
+        </FieldRow>
+        <FieldRow label={t('installationId')} hint={t('installationIdHint')}>
+          <input className="ghapp-input" inputMode="numeric" aria-label={t('installationId')}
+            value={draft.installationId} disabled={!editable} onChange={event => update({ installationId: event.currentTarget.value })} />
+        </FieldRow>
+        <FieldRow label={t('keySource')} hint={t('keySourceHint')}>
+          <SelectControl label={t('keySource')} value={draft.keySource} disabled={!editable}
+            onChange={value => update({ keySource: value === 'ref' ? 'ref' : 'path' })}>
             <option value="path">{t('keyPath')}</option>
             <option value="ref">{t('keyRef')}</option>
-          </select>
-        </label>
-        <label className="ghapp-field">
-          <span className="ghapp-label">{t('keyValue')}</span>
-          <input className="ghapp-input" value={draft.keyValue} disabled={!editable} onChange={event => update({ keyValue: event.currentTarget.value })} />
-          <span className="ghapp-hint">{draft.keySource === 'path' ? t('keyValueHintPath') : t('keyValueHintRef')}</span>
-        </label>
-        <label className="ghapp-field ghapp-field-wide ghapp-check">
-          <input type="checkbox" checked={draft.contextInjection} disabled={!editable} onChange={event => update({ contextInjection: event.currentTarget.checked })} />
-          <span>
-            <span className="ghapp-label">{t('contextInjection')}</span>
-            <span className="ghapp-hint"> {t('contextInjectionHint')}</span>
-          </span>
-        </label>
-        <label className="ghapp-field ghapp-field-wide ghapp-check">
-          <input type="checkbox" checked={draft.configureGh} disabled={!editable} onChange={event => update({ configureGh: event.currentTarget.checked })} />
-          <span>
-            <span className="ghapp-label">{t('configureGh')}</span>
-            <span className="ghapp-hint"> {t('configureGhHint')}</span>
-          </span>
-        </label>
-        <label className="ghapp-field ghapp-field-wide ghapp-check">
-          <input type="checkbox" checked={draft.blockRawGitCommit} disabled={!editable} onChange={event => update({ blockRawGitCommit: event.currentTarget.checked })} />
-          <span>
-            <span className="ghapp-label">{t('blockRawGitCommit')}</span>
-            <span className="ghapp-hint"> {t('blockRawGitCommitHint')}</span>
-          </span>
-        </label>
+          </SelectControl>
+        </FieldRow>
+        <FieldRow label={t('keyValue')} hint={draft.keySource === 'path' ? t('keyValueHintPath') : t('keyValueHintRef')}>
+          <input className="ghapp-input" aria-label={t('keyValue')}
+            value={draft.keyValue} disabled={!editable} onChange={event => update({ keyValue: event.currentTarget.value })} />
+        </FieldRow>
+        <SwitchRow label={t('contextInjection')} hint={t('contextInjectionHint')}
+          checked={draft.contextInjection} disabled={!editable}
+          onChange={next => update({ contextInjection: next })} />
+        <SwitchRow label={t('configureGh')} hint={t('configureGhHint')}
+          checked={draft.configureGh} disabled={!editable}
+          onChange={next => update({ configureGh: next })} />
+        <SwitchRow label={t('blockRawGitCommit')} hint={t('blockRawGitCommitHint')}
+          checked={draft.blockRawGitCommit} disabled={!editable}
+          onChange={next => update({ blockRawGitCommit: next })} />
       </div>
-      <details className="ghapp-details">
-        <summary>{t('advanced')}</summary>
-        <div className="ghapp-grid">
-          <label className="ghapp-field ghapp-field-wide">
-            <span className="ghapp-label">{t('tokenPath')}</span>
-            <input className="ghapp-input" value={draft.tokenPath} disabled={!editable} placeholder="github-app-token.json" onChange={event => update({ tokenPath: event.currentTarget.value })} />
-            <span className="ghapp-hint">{t('tokenPathHint')}</span>
-          </label>
-          <label className="ghapp-field">
-            <span className="ghapp-label">{t('threshold')}</span>
-            <input className="ghapp-input" inputMode="numeric" value={draft.threshold} disabled={!editable} onChange={event => update({ threshold: event.currentTarget.value })} />
-            <span className="ghapp-hint">{t('thresholdHint')}</span>
-          </label>
-          <label className="ghapp-field">
-            <span className="ghapp-label">{t('apiBaseUrl')}</span>
-            <input className="ghapp-input" value={draft.apiBaseUrl} disabled={!editable} placeholder="https://api.github.com" onChange={event => update({ apiBaseUrl: event.currentTarget.value })} />
-            <span className="ghapp-hint">{t('apiBaseUrlHint')}</span>
-          </label>
+      <div className="ghapp-card">
+        <h3 className="ghapp-card-title">{t('advanced')}</h3>
+        <div className="ghapp-rows">
+          <FieldRow label={t('tokenPath')} hint={t('tokenPathHint')}>
+            <input className="ghapp-input" aria-label={t('tokenPath')} placeholder="github-app-token.json"
+              value={draft.tokenPath} disabled={!editable} onChange={event => update({ tokenPath: event.currentTarget.value })} />
+          </FieldRow>
+          <FieldRow label={t('threshold')} hint={t('thresholdHint')}>
+            <input className="ghapp-input" inputMode="numeric" aria-label={t('threshold')}
+              value={draft.threshold} disabled={!editable} onChange={event => update({ threshold: event.currentTarget.value })} />
+          </FieldRow>
+          <FieldRow label={t('apiBaseUrl')} hint={t('apiBaseUrlHint')}>
+            <input className="ghapp-input" aria-label={t('apiBaseUrl')} placeholder="https://api.github.com"
+              value={draft.apiBaseUrl} disabled={!editable} onChange={event => update({ apiBaseUrl: event.currentTarget.value })} />
+          </FieldRow>
         </div>
-      </details>
+      </div>
       <p className="ghapp-note">{t('note')} {t('privateKeyNote')}</p>
       <div className="ghapp-actions">
         <button className="ghapp-button ghapp-button-primary" type="button" disabled={!editable} onClick={() => { void save() }}>
