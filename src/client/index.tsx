@@ -10,23 +10,10 @@
 
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
+import { draftFrom, EMPTY_DRAFT, validateDraft, type Draft, type GithubAppSettings } from './draft.ts'
 import { en, NS, zh, type CopyKey, type Translate } from './locales.ts'
 import { describeTokenStatus, useTokenStatus, type TokenStatus } from './status.ts'
 import { CSS, STYLE_MARKER } from './styles.ts'
-
-/** Plain values projected by the Host form. */
-interface GithubAppSettings {
-  readonly appId?: string | number
-  readonly installationId?: string | number
-  readonly privateKeyPath?: string
-  readonly privateKeyEnv?: string
-  readonly tokenPath?: string
-  readonly refreshThresholdSeconds?: number
-  readonly apiBaseUrl?: string
-  readonly contextInjection?: boolean
-  readonly configureGh?: boolean
-  readonly blockRawGitCommit?: boolean
-}
 
 interface ConfigFormSnapshot<T> {
   readonly status: 'loading' | 'ready' | 'unavailable'
@@ -67,80 +54,6 @@ interface SlotsService {
 interface SettingsSectionProps {
   readonly t: Translate
   readonly form: ConfigForm<GithubAppSettings>
-}
-
-interface Draft {
-  appId: string
-  installationId: string
-  keySource: 'path' | 'ref'
-  keyValue: string
-  tokenPath: string
-  threshold: string
-  apiBaseUrl: string
-  contextInjection: boolean
-  configureGh: boolean
-  blockRawGitCommit: boolean
-}
-
-const EMPTY_DRAFT: Draft = {
-  appId: '',
-  installationId: '',
-  keySource: 'path',
-  keyValue: '',
-  tokenPath: '',
-  threshold: '300',
-  apiBaseUrl: '',
-  contextInjection: true,
-  configureGh: true,
-  blockRawGitCommit: false,
-}
-
-function draftFrom(value: GithubAppSettings | undefined): Draft {
-  if (value === undefined) return { ...EMPTY_DRAFT }
-  const useRef = typeof value.privateKeyEnv === 'string' && value.privateKeyEnv !== ''
-  return {
-    appId: value.appId === undefined ? '' : String(value.appId),
-    installationId: value.installationId === undefined ? '' : String(value.installationId),
-    keySource: useRef ? 'ref' : 'path',
-    keyValue: useRef ? value.privateKeyEnv ?? '' : value.privateKeyPath ?? '',
-    tokenPath: value.tokenPath ?? '',
-    threshold: String(value.refreshThresholdSeconds ?? 300),
-    apiBaseUrl: value.apiBaseUrl ?? '',
-    contextInjection: value.contextInjection !== false,
-    configureGh: value.configureGh !== false,
-    blockRawGitCommit: value.blockRawGitCommit === true,
-  }
-}
-
-function validId(value: string): boolean {
-  return /^[1-9][0-9]*$/.test(value.trim())
-}
-
-function validHttpUrl(value: string): boolean {
-  if (value.trim() === '') return true
-  try {
-    const url = new URL(value.trim())
-    return (url.protocol === 'http:' || url.protocol === 'https:')
-      && url.username === ''
-      && url.password === ''
-      && url.search === ''
-      && url.hash === ''
-  } catch {
-    return false
-  }
-}
-
-function validate(draft: Draft, t: Translate): string | undefined {
-  const appId = draft.appId.trim()
-  const installationId = draft.installationId.trim()
-  const keyValue = draft.keyValue.trim()
-  if (appId === '' && installationId === '' && keyValue === '') return undefined
-  if (!validId(appId) || !validId(installationId)) return t('invalidIds')
-  if (keyValue === '') return t('invalidKey')
-  if (draft.keySource === 'ref' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyValue)) return t('invalidKey')
-  if (!/^(0|[1-9][0-9]*)$/.test(draft.threshold.trim())) return t('invalidThreshold')
-  if (!validHttpUrl(draft.apiBaseUrl)) return t('invalidUrl')
-  return undefined
 }
 
 /** Set or clear one form field. */
@@ -187,7 +100,7 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   }
 
   const save = async (): Promise<void> => {
-    const problem = validate(draft, t)
+    const problem = validateDraft(draft, t)
     if (problem !== undefined) {
       setMessage({ kind: 'error', text: problem })
       return
