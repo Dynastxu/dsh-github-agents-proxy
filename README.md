@@ -8,7 +8,7 @@ DeepSeek Harness 的 GitHub App 代理。只需配置一次 App 凭证，之后 
 
 ## 功能
 
-- 提供 `refresh_ghapp_token` 与 `check_ghapp_token_status` 两个工具。
+- 提供 `refresh_ghapp_token` 与 `check_ghapp_token_status` 两个令牌工具。
 - 设置页标题旁实时显示令牌状态与剩余时间：未配置、未激活、已激活、即将过期、已过期、令牌不可读。
 - 在对话开始时注入一次固定前缀的令牌快照；当令牌进入刷新阈值内、刷新成功后再次注入。
 - 从 App ID 和私钥解析 App bot 的 login / user id，并向 Host 进程注入 `GIT_AUTHOR_*`、`GIT_COMMITTER_*`，让 Agent 子进程里的 `git commit` 自动使用 bot 身份；不修改仓库或全局 git 配置。

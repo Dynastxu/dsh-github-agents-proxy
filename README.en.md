@@ -12,7 +12,7 @@ Commit-history rewriting and Verified signing are later steps.
 
 ## What it does
 
-- Adds `refresh_ghapp_token` and `check_ghapp_token_status`.
+- Adds the `refresh_ghapp_token` and `check_ghapp_token_status` token tools.
 - Shows the cached token's live state and remaining lifetime beside the settings
   page title: not configured, not activated, active, expiring, expired, or
   unreadable.
