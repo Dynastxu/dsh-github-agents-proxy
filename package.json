@@ -15,8 +15,19 @@
   ],
   "license": "MIT",
   "type": "module",
+  "homepage": "https://github.com/Dynastxu/dsh-github-agents-proxy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dynastxu/dsh-github-agents-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dynastxu/dsh-github-agents-proxy/issues"
+  },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -40,7 +51,7 @@
     "test:watch": "vitest",
     "prepare": "npm run build",
     "prepack": "npm run build",
-    "workflow:ci": "pnpm run typecheck && pnpm run test && pnpm run build"
+    "workflow:ci": "pnpm run typecheck && pnpm run test && pnpm run build && node scripts/verify-package-payload.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
