@@ -50,7 +50,7 @@ describe('github-agents-proxy plugin', () => {
     const fake = fakeContext()
     try {
       await fake.ctx.plugin(plugin)
-      expect([...fake.tools.keys()].sort()).toEqual(['check_ghapp_token_status', 'commit_changes', 'refresh_ghapp_token'])
+      expect([...fake.tools.keys()].sort()).toEqual(['check_ghapp_token_status', 'commit_changes', 'create_pull_request', 'refresh_ghapp_token'])
       expect([...fake.prompts.keys()]).toEqual([plugin.GITHUB_APP_TOKEN_CONTEXT_NAME])
       expect([...fake.sections.keys()]).toEqual([plugin.GITHUB_APP_COMMIT_GUIDANCE_SECTION])
       const prompt = fake.prompts.get(plugin.GITHUB_APP_TOKEN_CONTEXT_NAME)!

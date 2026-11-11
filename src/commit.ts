@@ -9,52 +9,15 @@
  */
 
 import type { BotIdentity } from './bot.ts'
-import type { ToolDefinition, ToolRunContext } from './tools.ts'
+import { failureText, resolveWorkspaceCwd, runGit, type GitRuntime } from './git.ts'
+import type { ToolDefinition } from './tools.ts'
 
-/** One collected subprocess stream. */
-interface CollectedStream {
-  readFrom(offset: number): { readonly text: string }
-}
-
-/** The slice of a subprocess handle used by the commit tool. */
-interface SubprocessHandle {
-  readonly done: Promise<{ readonly exitCode: number | null }>
-  readonly collected: {
-    readonly stdout?: CollectedStream
-    readonly stderr?: CollectedStream
-  }
-}
-
-/** The slice of `ctx.subprocess` used by the commit tool. */
-export interface SubprocessLike {
-  resolveExecutable(name: string): Promise<string>
-  spawn(spec: {
-    readonly argv: readonly string[]
-    readonly cwd: string
-    readonly stdio: {
-      readonly stdin: 'ignore'
-      readonly stdout: { readonly maxBytes: number }
-      readonly stderr: { readonly maxBytes: number }
-    }
-    readonly graceMs: number
-    readonly signal?: AbortSignal
-    readonly env?: NodeJS.ProcessEnv
-  }): SubprocessHandle
-}
-
-/** The slice of `ctx.workingDirectory` used by the commit tool. */
-export interface WorkingDirectoryLike {
-  ensure(agent: object, signal: AbortSignal): Promise<string>
-}
+export type { SubprocessLike, WorkingDirectoryLike } from './git.ts'
 
 /** Runtime dependencies behind the commit tool. */
-export interface CommitRuntime {
+export interface CommitRuntime extends GitRuntime {
   /** Current App bot identity, or undefined when resolution failed. */
   currentBotIdentity(): BotIdentity | undefined
-  /** Subprocess service, when the composition provides one. */
-  subprocess(): SubprocessLike | undefined
-  /** Session working-directory service, when available. */
-  workingDirectory(): WorkingDirectoryLike | undefined
 }
 
 /** Arguments accepted by `commit_changes`. */
@@ -94,66 +57,10 @@ export interface CommitFailure {
 /** Canonical result of `commit_changes`. */
 export type CommitResult = CommitSuccess | CommitFailure
 
-interface RunResult {
-  readonly code: number | null
-  readonly stdout: string
-  readonly stderr: string
-}
-
-const MAX_OUTPUT_CHARS = 2_000
 const TIMEOUT_MS = 120_000
-
-function truncate(value: string): string {
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  return normalized.length <= MAX_OUTPUT_CHARS ? normalized : `${normalized.slice(0, MAX_OUTPUT_CHARS)}…`
-}
-
-function failure(result: RunResult, fallback: string): string {
-  const output = truncate(`${result.stderr}\n${result.stdout}`)
-  return output === '' ? `${fallback} (git exited with ${String(result.code)})` : output
-}
 
 function identityValue(value: string): string {
   return value.replace(/[\r\n<>]/g, '').trim()
-}
-
-async function runGit(
-  subprocess: SubprocessLike,
-  executable: string,
-  cwd: string,
-  args: readonly string[],
-  env: NodeJS.ProcessEnv,
-  signal: AbortSignal,
-): Promise<RunResult> {
-  const handle = subprocess.spawn({
-    argv: [executable, ...args],
-    cwd,
-    stdio: {
-      stdin: 'ignore',
-      stdout: { maxBytes: 64 * 1024 },
-      stderr: { maxBytes: 64 * 1024 },
-    },
-    graceMs: 5_000,
-    signal,
-    env,
-  })
-  const outcome = await handle.done
-  return {
-    code: outcome.exitCode,
-    stdout: handle.collected.stdout?.readFrom(0).text ?? '',
-    stderr: handle.collected.stderr?.readFrom(0).text ?? '',
-  }
-}
-
-async function resolveCwd(runtime: CommitRuntime, exec: ToolRunContext): Promise<string> {
-  if (exec.agent !== undefined) {
-    const workingDirectory = runtime.workingDirectory()
-    if (workingDirectory !== undefined) return workingDirectory.ensure(exec.agent, exec.signal)
-    const session = (exec.agent as { readonly session?: { readonly header?: { readonly cwd?: string } } }).session
-    const cwd = session?.header?.cwd
-    if (typeof cwd === 'string' && cwd.length > 0) return cwd
-  }
-  return process.cwd()
 }
 
 /**
@@ -226,7 +133,7 @@ export function createCommitTool(runtime: CommitRuntime): ToolDefinition<CommitA
       }
       let cwd: string
       try {
-        cwd = await resolveCwd(runtime, exec)
+        cwd = await resolveWorkspaceCwd(runtime, exec)
       } catch (error: unknown) {
         return { ok: false, message: `cannot resolve the working directory: ${error instanceof Error ? error.message : String(error)}` }
       }
@@ -245,7 +152,7 @@ export function createCommitTool(runtime: CommitRuntime): ToolDefinition<CommitA
       const stage = args.stage ?? 'all'
       if (stage !== 'staged') {
         const add = await runGit(subprocess, executable, cwd, ['add', stage === 'all' ? '-A' : '-u'], env, exec.signal)
-        if (add.code !== 0) return { ok: false, message: `git add failed: ${failure(add, 'git add failed')}` }
+        if (add.code !== 0) return { ok: false, message: `git add failed: ${failureText(add, 'git add failed')}` }
       }
 
       const name = await runGit(subprocess, executable, cwd, ['config', '--global', '--get', 'user.name'], env, exec.signal)
@@ -261,12 +168,12 @@ export function createCommitTool(runtime: CommitRuntime): ToolDefinition<CommitA
       if (args.allow_empty === true) commitArgs.push('--allow-empty')
       if (coAuthor !== undefined && !/^Co-authored-by:/mi.test(message)) commitArgs.push('--trailer', coAuthor)
       const commit = await runGit(subprocess, executable, cwd, commitArgs, env, exec.signal)
-      if (commit.code !== 0) return { ok: false, message: `git commit failed: ${failure(commit, 'git commit failed')}` }
+      if (commit.code !== 0) return { ok: false, message: `git commit failed: ${failureText(commit, 'git commit failed')}` }
 
       const sha = await runGit(subprocess, executable, cwd, ['rev-parse', 'HEAD'], env, exec.signal)
       const branch = await runGit(subprocess, executable, cwd, ['rev-parse', '--abbrev-ref', 'HEAD'], env, exec.signal)
       if (sha.code !== 0 || branch.code !== 0) {
-        return { ok: false, message: `commit succeeded but its identity could not be read: ${failure(sha.code !== 0 ? sha : branch, 'git rev-parse failed')}` }
+        return { ok: false, message: `commit succeeded but its identity could not be read: ${failureText(sha.code !== 0 ? sha : branch, 'git rev-parse failed')}` }
       }
       return {
         ok: true,

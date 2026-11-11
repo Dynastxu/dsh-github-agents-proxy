@@ -6,9 +6,9 @@ GitHub App proxy for DeepSeek Harness. Configure one App credential set once;
 Agents then use `gh`/`git` through the App installation token, so pushes are
 attributed to the App's bot identity. The token is refreshed on demand.
 
-This stage owns the token, `gh` authentication, and Git identity injection for
-Agent child processes. Commit-history rewriting, Verified signing, and PR
-attribution are later steps.
+This stage owns the token, `gh` authentication, Git identity injection for
+Agent child processes, and pull-request creation under the App identity.
+Commit-history rewriting and Verified signing are later steps.
 
 ## What it does
 
@@ -26,6 +26,9 @@ attribution are later steps.
 - Provides `commit_changes`, which sets the bot identity for one commit and
   appends the user's `Co-authored-by` trailer. A setting can block raw
   `git commit`, and a system-prompt section tells Agents to use the tool.
+- Provides `create_pull_request`, which creates the pull request through the
+  GitHub REST API with the installation token, so GitHub attributes it to the
+  App bot. It neither commits nor pushes.
 - Stores the installation token in a private file (`0600` where the platform
   supports it) and refreshes it under a cross-process file lock with a
   double-check after the lock.
@@ -179,6 +182,34 @@ Reads the cached file without calling GitHub. It returns `valid`, `expiring`,
 `expired`, `missing`, `invalid`, or `unconfigured`, plus `expires_at`,
 `remaining`, `needs_refresh`, and the token file path. Use it when the status
 snapshot is absent or a workflow needs a fresh local reading.
+
+### `create_pull_request`
+
+Creates the pull request with `POST /repos/{owner}/{repo}/pulls` and the
+installation token, so GitHub attributes it to the App bot account. The tool
+neither commits nor pushes: the `head` branch must already exist on the remote.
+
+| Parameter | Meaning |
+|---|---|
+| `title` | Pull-request title; required |
+| `body` | Pull-request description in Markdown |
+| `base` | Branch to merge into; defaults to the repository `default_branch` from `GET /repos/{owner}/{repo}` |
+| `head` | Branch with the changes; defaults to the branch checked out in the working directory |
+| `draft` | Open as a draft |
+| `repo` | `owner/name`; defaults to the `origin` remote of the working directory, accepting https, `ssh://`, `git@host:owner/name`, and GitHub Enterprise hosts |
+
+It returns `number`, `url`, `repository`, `head`, `base`, `draft`, `author`, and
+`created`. When an open pull request already uses the same `head`, the tool
+returns that pull request with `created=false` instead of failing, so a retried
+call converges.
+
+Failures carry a structured `message` and an actionable `hint`: 401 points at
+`refresh_ghapp_token`, 403 at installation permissions, 404 at repository or
+branch names outside the installation, and 422 at pushing the `head` branch.
+
+Limits: the tool only creates the pull request; it does not push or change a
+remote branch. Draft support depends on the repository settings, and unpushed
+local commits are not part of the pull request.
 
 ## Agent commit identity
 

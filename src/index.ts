@@ -1,13 +1,13 @@
 /**
  * GitHub App installation-token manager for DeepSeek Harness.
  *
- * The plugin contributes two tools, one runtime-context snapshot, a status
+ * The plugin contributes three tools, one runtime-context snapshot, a status
  * endpoint for its settings page, and a browser settings page over volatile
  * Config fields. It never starts a daemon or background loop: a refresh happens
- * only when an Agent calls `refresh_ghapp_token`, the snapshot is re-evaluated
- * during normal prompt assembly, and the settings page polls local token state
- * only while it is open. Token state is shared across Agents through a private
- * file guarded by a cross-process lock.
+ * only when an Agent calls `refresh_ghapp_token` or a tool needs a token, the
+ * snapshot is re-evaluated during normal prompt assembly, and the settings page
+ * polls local token state only while it is open. Token state is shared across
+ * Agents through a private file guarded by a cross-process lock.
  *
  * @module @dynastxu/dsh-github-agents-proxy
  */
@@ -15,7 +15,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { readConfig, resolveConfig, type ConfigInput, type ResolvedConfig } from './config.ts'
 import { clearBotIdentity, installBotIdentity, resolveBotIdentity, type BotIdentity } from './bot.ts'
-import { createCommitTool, type CommitRuntime, type SubprocessLike, type WorkingDirectoryLike } from './commit.ts'
+import { createCommitTool, type CommitRuntime } from './commit.ts'
+import type { SubprocessLike, WorkingDirectoryLike } from './git.ts'
 import { isGitCommitCommand } from './guard.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -29,6 +30,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 import { GitHubAppTokenManager, type CredentialsResolver } from './manager.ts'
+import { createPullRequestTool, type PullRequestRuntime } from './pull-request.ts'
 import { TOKEN_STATUS_ROUTE } from './status-contract.ts'
 import { serveTokenStatus } from './status.ts'
 import { createRefreshTool, createStatusTool, type TokenManagerSource, type ToolsRegistry } from './tools.ts'
@@ -41,13 +43,17 @@ export { clearBotIdentity, installBotIdentity, resolveBotIdentity } from './bot.
 export type { CommitArgs, CommitFailure, CommitResult, CommitRuntime, CommitSuccess, SubprocessLike, WorkingDirectoryLike } from './commit.ts'
 export { createCommitTool } from './commit.ts'
 export { formatDuration } from './duration.ts'
+export type { GitRuntime, RunResult } from './git.ts'
+export { failureText, resolveWorkspaceCwd, runGit, truncateOutput } from './git.ts'
 export { isGitCommitCommand } from './guard.ts'
 export type { CredentialsResolver, ManagerOptions } from './manager.ts'
 export { formatTokenSnapshot, GitHubAppTokenManager, hintForState, readPrivateKeyPem } from './manager.ts'
+export type { PullRequestArgs, PullRequestFailure, PullRequestResult, PullRequestRuntime, PullRequestSuccess, RepositoryRef, CreatePullRequestRequest } from './pull-request.ts'
+export { createPullRequest, createPullRequestTool, parseRepository, parseRepositoryFromRemote } from './pull-request.ts'
 export { TOKEN_STATUS_ROUTE } from './status-contract.ts'
 export type { TokenStatusResponse } from './status-contract.ts'
 export { serveTokenStatus } from './status.ts'
-export type { RefreshFailed, RefreshNotConfigured, RefreshResult, RefreshStillValid, RefreshSuccess, StatusResult, StoredToken, TokenReport, TokenSnapshot, TokenState } from './types.ts'
+export type { RefreshFailed, RefreshNotConfigured, RefreshResult, RefreshStillValid, RefreshSuccess, StatusResult, StoredToken, TokenAccess, TokenReport, TokenSnapshot, TokenState } from './types.ts'
 export type { ContentBlock, TokenManagerSource, ToolDefinition, ToolRunContext, ToolsRegistry } from './tools.ts'
 export { createRefreshTool, createStatusTool, tokenReport } from './tools.ts'
 
@@ -223,12 +229,21 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
   if (tools === undefined) throw new Error('github-agents-proxy requires the tools service')
   ctx.effect(() => tools.register(createRefreshTool(source)))
   ctx.effect(() => tools.register(createStatusTool(source)))
-  const commitRuntime: CommitRuntime = {
-    currentBotIdentity: () => currentBotIdentity,
+  const gitRuntime = {
     subprocess: () => ctx.get('subprocess') as SubprocessLike | undefined,
     workingDirectory: () => ctx.get('workingDirectory') as WorkingDirectoryLike | undefined,
   }
+  const commitRuntime: CommitRuntime = {
+    ...gitRuntime,
+    currentBotIdentity: () => currentBotIdentity,
+  }
   ctx.effect(() => tools.register(createCommitTool(commitRuntime)))
+  const pullRequestRuntime: PullRequestRuntime = {
+    ...gitRuntime,
+    accessToken: signal => source.current().accessToken(signal),
+    apiBaseUrl: () => source.current().config.apiBaseUrl,
+  }
+  ctx.effect(() => tools.register(createPullRequestTool(pullRequestRuntime)))
 
   // The status route is optional: compositions without a Web carrier keep the
   // plugin loadable, and the settings page then reports the status as

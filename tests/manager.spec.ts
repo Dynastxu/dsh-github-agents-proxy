@@ -242,3 +242,71 @@ describe('GitHubAppTokenManager', () => {
     }
   })
 })
+
+describe('GitHubAppTokenManager.accessToken', () => {
+  it('returns a healthy cached token without contacting GitHub', async () => {
+    const fixture = await createFixture()
+    try {
+      const time = clock()
+      await new FileTokenStore(fixture.tokenPath).write(tokenDocument(1800, time.now))
+      const fetchImpl = vi.fn() as unknown as typeof fetch
+      const manager = new GitHubAppTokenManager(fixture.config, { now: () => time.now, fetch: fetchImpl })
+      await manager.initialize()
+      const access = await manager.accessToken(abortSignal())
+      expect(access).toEqual({
+        ok: true,
+        token: 'ghs_test_token',
+        expires_at: new Date(time.now + 1800_000).toISOString(),
+        refreshed: false,
+      })
+      expect(fetchImpl).not.toHaveBeenCalled()
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('exchanges a token when the cache is missing', async () => {
+    const fixture = await createFixture()
+    try {
+      const time = clock()
+      const fetchImpl = (async () => jsonResponse({
+        token: 'ghs_fresh',
+        expires_at: new Date(time.now + 3600_000).toISOString(),
+      })) as typeof fetch
+      const manager = new GitHubAppTokenManager(fixture.config, { now: () => time.now, fetch: fetchImpl })
+      await manager.initialize()
+      const access = await manager.accessToken(abortSignal())
+      expect(access).toMatchObject({ ok: true, token: 'ghs_fresh', refreshed: true })
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('names the missing credential fields when the installation is unconfigured', async () => {
+    const config = resolveConfig({}, { env: {}, home: process.cwd(), cwd: process.cwd() })
+    const manager = new GitHubAppTokenManager(config)
+    const access = await manager.accessToken(abortSignal())
+    expect(access).toEqual({
+      ok: false,
+      message: 'GitHub App credentials are not configured; missing appId, installationId, privateKeyPath',
+      hint: 'Configure appId, installationId, and privateKeyPath or privateKeyEnv for the github-agents-proxy plugin.',
+    })
+  })
+
+  it('carries the refresh failure message and hint', async () => {
+    const fixture = await createFixture()
+    try {
+      const fetchImpl = (async () => jsonResponse({ message: 'Bad credentials' }, 401)) as typeof fetch
+      const manager = new GitHubAppTokenManager(fixture.config, { fetch: fetchImpl })
+      await manager.initialize()
+      const access = await manager.accessToken(abortSignal())
+      expect(access).toMatchObject({
+        ok: false,
+        message: expect.stringContaining('GitHub API 401: Bad credentials'),
+        hint: expect.stringContaining('Check the App ID'),
+      })
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+})

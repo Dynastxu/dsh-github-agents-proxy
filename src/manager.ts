@@ -17,7 +17,7 @@ import { configureGhAuth, type GhAuthResult } from './gh.ts'
 import { exchangeInstallationToken } from './github.ts'
 import { createAppJwt, parsePrivateKey } from './jwt.ts'
 import { FileTokenStore, TokenFileError } from './token-store.ts'
-import type { RefreshResult, StoredToken, TokenSnapshot, TokenState } from './types.ts'
+import type { RefreshResult, StoredToken, TokenAccess, TokenSnapshot, TokenState } from './types.ts'
 
 export { formatDuration } from './duration.ts'
 
@@ -308,6 +308,51 @@ export class GitHubAppTokenManager {
       if (signal.aborted) throw error
       return this.failed(error)
     }
+  }
+
+  /**
+   * Return a usable installation token for one GitHub request.
+   *
+   * The cached token is re-read from disk first, so a refresh performed by
+   * another process is picked up. A missing, expired, or near-expiry token is
+   * refreshed through the normal locked path. The token is returned to the
+   * caller only; it never enters a tool result.
+   * @param signal - caller cancellation for lock waits, file reads, and the HTTP request.
+   * @returns the token, or a structured reason and hint when none can be produced.
+   */
+  async accessToken(signal: AbortSignal): Promise<TokenAccess> {
+    if (!this.config.configured) {
+      return {
+        ok: false,
+        message: `GitHub App credentials are not configured; missing ${this.config.missing.join(', ')}`,
+        hint: 'Configure appId, installationId, and privateKeyPath or privateKeyEnv for the github-agents-proxy plugin.',
+      }
+    }
+    signal.throwIfAborted()
+    const snapshot = await this.checkFromDisk()
+    if (snapshot.state === 'valid' && this.token !== undefined) {
+      return { ok: true, token: this.token.token, expires_at: this.token.expires_at, refreshed: false }
+    }
+    const result = await this.refresh(false, signal)
+    if (result.ok || result.reason === 'token_still_valid') {
+      const token = this.token
+      if (token === undefined) {
+        return {
+          ok: false,
+          message: 'the installation token could not be read after the refresh',
+          hint: 'Call refresh_ghapp_token to replace the cached token, then retry.',
+        }
+      }
+      return { ok: true, token: token.token, expires_at: token.expires_at, refreshed: result.ok }
+    }
+    if (result.reason === 'not_configured') {
+      return {
+        ok: false,
+        message: `GitHub App credentials are not configured; missing ${result.missing.join(', ')}`,
+        hint: result.hint,
+      }
+    }
+    return { ok: false, message: result.message, hint: result.hint }
   }
 
   private async reloadFromDisk(): Promise<void> {
