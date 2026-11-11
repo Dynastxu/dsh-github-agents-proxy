@@ -174,7 +174,6 @@ export function createCommitTool(runtime: CommitRuntime): ToolDefinition<CommitA
       properties: {
         message: {
           type: 'string',
-          required: true,
           description: 'Commit message. A blank line and Co-authored-by trailer are added automatically when the user identity is available.',
         },
         stage: {

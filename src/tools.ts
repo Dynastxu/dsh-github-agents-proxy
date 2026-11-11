@@ -38,11 +38,32 @@ export interface ToolRunContext {
   readonly agent?: object
 }
 
+/**
+ * One scalar property in a tool parameter object.
+ *
+ * `required` is deliberately absent: JSON Schema carries it as a string array on
+ * the enclosing object, and a boolean here is rejected by provider validators.
+ */
+export interface ParameterProperty {
+  readonly type: 'string' | 'integer' | 'number' | 'boolean'
+  readonly description?: string
+  readonly enum?: readonly string[]
+}
+
+/** Object-rooted parameter schema sent to the model with the tool definition. */
+export interface ParameterSchema {
+  readonly type: 'object'
+  readonly additionalProperties?: boolean
+  /** Declared property names that the model must supply. */
+  readonly required?: readonly string[]
+  readonly properties: Readonly<Record<string, ParameterProperty>>
+}
+
 /** A tool definition compatible with `ctx.tools.register`. */
 export interface ToolDefinition<TArgs, TResult> {
   readonly name: string
   readonly description: string
-  readonly parameters: Record<string, unknown>
+  readonly parameters: ParameterSchema
   readonly timeoutMs?: number
   readonly output: {
     readonly schema: Record<string, unknown>
