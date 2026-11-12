@@ -21,11 +21,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup
-        uses: ./.github/actions/setup
+      - name: Set up pnpm
+        uses: pnpm/setup@v3
+        with:
+          version: 11
+          runtime: node@24
+          cache: true
+
+      - name: Install dependencies
+        run: pnpm ci
 
       - name: CI
-        run: pnpm workflow:ci
+        run: pnpm run workflow:ci
 
       - name: Upload build output
         uses: actions/upload-artifact@v7

@@ -51,7 +51,8 @@
     "test:watch": "vitest",
     "prepare": "npm run build",
     "prepack": "npm run build",
-    "workflow:ci": "pnpm run typecheck && pnpm run test && pnpm run build"
+    "workflow:ci": "pnpm run typecheck && pnpm run test && pnpm run build",
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

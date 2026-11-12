@@ -5,20 +5,30 @@ on:
 
 jobs:
   publish:
+    name: Publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup
-        uses: ./.github/actions/setup
+      - name: Set up pnpm
+        uses: pnpm/setup@v3
+        with:
+          version: 12
+          runtime: node@24
+          cache: true
 
-      - name: CI
-        run: pnpm workflow:ci
+      - name: Install dependencies
+        run: pnpm ci
 
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --access public
 
       - name: Publish to Github Packages
-        run: npm publish --registry https://npm.pkg.github.com/
-
+        run: npm publish --registry https://npm.pkg.github.com/ --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
