@@ -19,8 +19,9 @@ token refreshes on demand.
 ## Install
 
 Before you start, you need a GitHub App installed on the target repository with
-Contents and Pull requests write access, plus its App ID, installation ID, and
-private-key PEM.
+at least write access to Contents and Pull requests, plus its App ID,
+installation ID, and private-key PEM. The environment where Agents run must have
+the `gh` command.
 
 The package is published on npm. In the app, open **Plugins → Add plugin →
 Install a third-party plugin**, enter `@dynastxu/dsh-github-agents-proxy`, and
@@ -34,7 +35,7 @@ dsh plugin --profile <profile> add @dynastxu/dsh-github-agents-proxy
 
 Replace `<profile>` with the profile in use (for example `web` or `desktop`).
 Restart DSH, then open **Settings → GitHub App token** to enter the credentials.
-The settings page saves automatically; there is no Save button.
+The settings page saves automatically.
 
 ## Configuration
 
@@ -122,10 +123,7 @@ sets:
 <app-slug>[bot] <bot-user-id>+<app-slug>[bot]@users.noreply.github.com>
 ```
 
-The values depend on your App. The project author's App uses `dsh-agents` and
-bot user ID `354391007`, giving
-`dsh-agents[bot] <354391007+dsh-agents[bot]@users.noreply.github.com>`; that is
-only an example.
+The values depend on your App.
 
 The identity is injected into Agent child processes only. The plugin does not
 change repository or global git configuration, and commits from an external

@@ -13,7 +13,7 @@
 
 ## 安装
 
-开始前需要一个已安装到目标仓库的 GitHub App，授予 Contents 与 Pull requests 的读写权限，并取得它的 App ID、Installation ID 和私钥 PEM。
+开始前需要一个已安装到目标仓库的 GitHub App，至少授予 Contents 与 Pull requests 的读写权限，并取得它的 App ID、Installation ID 和私钥 PEM。Agents 所在环境必须拥有 gh 命令。
 
 包已发布到 npm，推荐在界面中安装：打开 **插件 → 添加插件 → 安装第三方插件**，填入包名 `@dynastxu/dsh-github-agents-proxy`，确认安装。
 
@@ -23,7 +23,7 @@
 dsh plugin --profile <profile> add @dynastxu/dsh-github-agents-proxy
 ```
 
-把 `<profile>` 换成实际使用的 profile（例如 `web`、`desktop`）。安装后重启 DSH，打开 **设置 → GitHub App 令牌** 填写凭证。设置页自动保存，没有保存按钮。
+把 `<profile>` 换成实际使用的 profile（例如 `web`、`desktop`）。安装后重启 DSH，打开 **设置 → GitHub App 令牌** 填写凭证。设置页会自动保存。
 
 ## 配置
 
@@ -90,7 +90,7 @@ Co-authored-by: <你的名字> <你的邮箱>
 <app-slug>[bot] <bot-user-id>+<app-slug>[bot]@users.noreply.github.com
 ```
 
-这些值取决于你自己的 App。项目作者的 App 是 `dsh-agents`、bot 用户 ID `354391007`，即 `dsh-agents[bot] <354391007+dsh-agents[bot]@users.noreply.github.com>`；它只是一个示例。
+这些值取决于你自己的 App。
 
 身份只注入 Agent 子进程，插件不修改仓库或全局 git 配置，外部终端的提交不受影响。
 
