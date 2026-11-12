@@ -2,379 +2,155 @@
 
 English | [中文](README.md)
 
-GitHub App proxy for DeepSeek Harness. Configure one App credential set once;
-Agents then use `gh`/`git` through the App installation token, so pushes are
-attributed to the App's bot identity. The token is refreshed on demand.
+Make DeepSeek Harness Agents work as a GitHub App. Configure one App credential
+set once, and `gh`, `git`, and pull-request operations use that App's
+installation token, so commits and pull requests belong to the App bot. The
+token refreshes on demand.
 
-This stage owns the token, `gh` authentication, Git identity injection for
-Agent child processes, and pull-request creation under the App identity.
-Commit-history rewriting and Verified signing are later steps.
+## Features
 
-## What it does
-
-- Adds `refresh_ghapp_token` and `check_ghapp_token_status`.
-- Shows the cached token's live state and remaining lifetime beside the settings
-  page title: not configured, not activated, active, expiring, expired, or
-  unreadable.
-- Injects one fixed-prefix token snapshot into runtime context at conversation
-  start, when the token crosses the refresh threshold, and after a successful
-  refresh.
-- Derives the App bot login/user id from the App ID and private key, then
-  injects `GIT_AUTHOR_*` / `GIT_COMMITTER_*` into the Host process so Agent
-  child-process `git commit` uses the bot identity. No repository or global git
-  configuration is changed.
-- Provides `commit_changes`, which sets the bot identity for one commit and
-  appends the user's `Co-authored-by` trailer. A setting can block raw
-  `git commit`, and a system-prompt section tells Agents to use the tool.
-- Provides `create_pull_request`, which creates the pull request through the
-  GitHub REST API with the installation token, so GitHub attributes it to the
-  App bot. It neither commits nor pushes.
-- Stores the installation token in a private file (`0600` where the platform
-  supports it) and refreshes it under a cross-process file lock with a
-  double-check after the lock.
-- Runs no daemon, timer, scheduled task, or background job. Nothing refreshes
-  unless an Agent calls the tool; status is evaluated during ordinary prompt
-  assembly.
-
-The plugin does not intercept or wrap `gh`. It owns the token and tells the
-Agent where the token file is; the caller launches `gh` with that token (see
-[Use the token with gh](#use-the-token-with-gh)).
+- Agent commits use the App bot identity and keep your `Co-authored-by` trailer.
+- Agents open pull requests as the App bot.
+- Configure credentials in **Settings → GitHub App token**; no bot name/email is
+  required.
+- Shows the token state and remaining lifetime, and refreshes on demand when
+  the token expires or is about to.
 
 ## Install
 
-The package ships a bundle patch, so a profile can load it by package name:
+Before you start, you need a GitHub App installed on the target repository with
+Contents and Pull requests write access, plus its App ID, installation ID, and
+private-key PEM.
 
-```json
-{
-  "dsh": {
-    "profile": {
-      "bundles": ["@deepseek-ai/dsh-base", "@dynastxu/dsh-github-agents-proxy"]
-    }
-  }
-}
+The package is published on npm. In the app, open **Plugins → Add plugin →
+Install a third-party plugin**, enter `@dynastxu/dsh-github-agents-proxy`, and
+confirm.
+
+Or install it into the profile you use from the CLI:
+
+```sh
+dsh plugin --profile <profile> add @dynastxu/dsh-github-agents-proxy
 ```
 
-The patch inserts the `github-agents-proxy` row. Configure that row in the
-profile's `cordis.patch.yml`:
-
-```yaml
-- id: github-agents-proxy
-  config:
-    appId: 123456
-    installationId: 98765432
-    privateKeyPath: /home/me/.dsh/github-app.pem
-```
-
-Set all three credential fields, or leave all of them out. A partial set fails
-at load with the missing field names.
-
-## Web settings page
-
-The browser half registers **Settings → GitHub App token**. It edits the
-active profile's volatile Config fields and writes them into the profile's
-`cordis.patch.yml` about half a second after the last edit, so no hand-editing
-and no Save button are required:
-
-- App ID and Installation ID
-- private-key source (file path or DSH credential reference) and value; the
-  Desktop app offers a folder button that picks the PEM file directly
-- token cache path, refresh threshold, and GitHub API base URL
-- whether the runtime status snapshot is injected
-
-The status line in the identity card shows the cached token's live state:
-`Not configured`, `Not activated`, `Active · 28m2s left`, `Expiring · 1m52s
-left`, `Expired`, or `Token unreadable`. Hover it for the expiry instant and
-the token file. The avatar shows the App's own image from the bot user response
-once the Host has resolved the bot identity, falling back to the App owner's
-avatar and finally to the GitHub mark while the identity is unresolved or the
-image fails to load. While the page is open it
-reads `GET /api/github-agents-proxy/status` every 15 seconds; that route only
-reads the local token file and cached identity — no GitHub request, no refresh
-lock — and the page counts down on the Host clock, one second at a time.
-Polling stops when the page closes. A Host without a Web carrier reports
-`Status unavailable`.
-
-Each write validates the positive IDs, key source, and URL, then submits one
-atomic mutation through `ctx.configForms`. App ID, Installation ID, and the
-private key are written only when all three are present or all are empty, so a
-half-filled credential set cannot break the next load; the private-key row
-states this while the set is incomplete. **Reset** in the card clears every
-value. The Host receives `loader/volatile-update` and rebuilds the token
-manager, so the next tool call and status injection use the new values. The
-browser half loads with the Web client; restart the DSH Host after upgrading
-(and reload the page if needed) to see the page.
+Replace `<profile>` with the profile in use (for example `web` or `desktop`).
+Restart DSH, then open **Settings → GitHub App token** to enter the credentials.
+The settings page saves automatically; there is no Save button.
 
 ## Configuration
 
+The settings page exposes every option and shows the cached token state live:
+active, expiring, expired, and so on. The private key can come from a file path,
+a DSH credential reference, or, in the Desktop app, the folder button that picks
+the PEM file.
+
 | Field | Default | Meaning |
 |---|---|---|
-| `appId` | required with credentials | GitHub App ID. Numbers and numeric strings are accepted. |
-| `installationId` | required with credentials | Installation ID for the repository set the Agent may use. |
-| `privateKeyPath` | — | PEM private-key path. Mutually exclusive with `privateKeyEnv`. |
-| `privateKeyEnv` | — | Credential reference resolved through `ctx.credentials`; falls back to the process environment when the credential service is absent. |
-| `tokenPath` | `<profile dir>/github-app-token.json` | Cached installation-token file. |
-| `refreshThresholdSeconds` | `300` | Refresh when less than this many seconds remain. `0` refreshes only an expired token. |
+| `appId` | required with credentials | GitHub App ID. |
+| `installationId` | required with credentials | Installation ID from installing the App on the target repositories. |
+| `privateKeyPath` | — | PEM private-key path. Use it or `privateKeyEnv`. |
+| `privateKeyEnv` | — | Name of the DSH credential that holds the private key. |
+| `tokenPath` | `<profile dir>/github-app-token.json` | Token cache file. |
+| `refreshThresholdSeconds` | `300` | Refresh when less than this many seconds remain. |
 | `apiBaseUrl` | `https://api.github.com` | GitHub API origin, including a GitHub Enterprise `api/v3` path when needed. |
-| `contextInjection` | `true` | Inject the runtime-context status snapshot. |
-| `configureGh` | `true` | Run `gh auth login --with-token` after refresh so plain `gh` commands use the token; global git settings are left untouched. |
-| `blockRawGitCommit` | `false` | Deny direct `git commit` in bash/pwsh and require `commit_changes`. A command guardrail, not a security boundary. |
+| `contextInjection` | `true` | Inject the token state into the conversation. |
+| `configureGh` | `true` | Let plain `gh` commands use the token after a refresh. |
+| `blockRawGitCommit` | `false` | Deny raw `git commit` from Agents and require `commit_changes`. |
 
-### Keep the private key out of the repository
+Without a Web settings page, configure the `github-agents-proxy` row in the
+profile's `cordis.patch.yml` instead.
 
-`privateKeyPath` should point outside the checkout, or set
-`.dsh/github-app.pem` as an ignored local file. For DSH-managed storage, use
-`privateKeyEnv` and put the PEM in `$DSH_HOME/.credentials.yaml`:
+### Private-key safety
 
-```yaml
-version: 1
-refs:
-  GITHUB_APP_PRIVATE_KEY: |
-    -----BEGIN RSA PRIVATE KEY-----
-    …
-    -----END RSA PRIVATE KEY-----
-```
-
-Then configure `privateKeyEnv: GITHUB_APP_PRIVATE_KEY`. The credential service
-resolves the reference at each refresh, so rotating the key takes effect on the
-next call without restarting DSH.
-
-The private key is never written to the token file, tool result, or context
-snapshot.
+Do not commit the private key. Keep it outside the checkout or add it to the
+ignore list; you can also store it in `$DSH_HOME/.credentials.yaml` and choose
+the DSH credential reference in the settings page. The private key never appears
+in the token file, tool results, or conversation context.
 
 ## Tools
 
-### `refresh_ghapp_token`
+### `commit_changes`
 
-Use it when:
+Commits the current changes with the App bot as author and committer, and
+appends:
 
-- `gh` returns `401`, `Bad credentials`, or otherwise says the token is invalid;
-- the injected status says `missing`, `expired`, or warns that the token is
-  about to expire;
-- a workflow needs a new installation token immediately.
-
-The tool takes the refresh lock, re-reads the cached token, and returns
-`reason=token_still_valid` without contacting GitHub when the token has more
-than the configured threshold left. If another Agent refreshed while this call
-waited for the lock, the second call sees the new expiry and does not make a
-duplicate GitHub request.
-
-`force: true` skips the expiry check. On a 401, call the tool without `force`
-first; if it returns `token_still_valid` while `gh` still reports 401, the token
-may have been revoked, so retry with `force: true`. Otherwise use `force` only
-when a still-valid token must be replaced.
-
-Success:
-
-```json
-{ "ok": true, "refreshed": true, "expires_at": "2026-11-10T23:05:00Z", "expires_in_seconds": 3580, "token_file": "…/github-app-token.json" }
+```text
+Co-authored-by: <your name> <your email>
 ```
 
-Still valid:
+Parameters: `message` (required), `stage` (`all` / `tracked` / `staged`,
+default `all`), `allow_empty`, and `amend`. It does not push.
 
-```json
-{
-  "ok": false,
-  "reason": "token_still_valid",
-  "expires_at": "2026-11-10T23:05:00Z",
-  "expires_in_seconds": 1800,
-  "hint": "The cached token is still valid. If gh still returns 401, call refresh_ghapp_token with force=true to replace a revoked token."
-}
-```
-
-A failed exchange and missing configuration are separate structured results:
-`reason=refresh_failed` carries a bounded message and actionable hint;
-`reason=not_configured` lists `appId`, `installationId`, and
-`privateKeyPath`/`privateKeyEnv`.
-
-### `check_ghapp_token_status`
-
-Reads the cached file without calling GitHub. It returns `valid`, `expiring`,
-`expired`, `missing`, `invalid`, or `unconfigured`, plus `expires_at`,
-`remaining`, `needs_refresh`, and the token file path. Use it when the status
-snapshot is absent or a workflow needs a fresh local reading.
+With **Block raw git commit** enabled, a raw `git commit` from an Agent is
+denied and the Agent is pointed at this tool. The guard inspects command text
+only; it is not a security boundary.
 
 ### `create_pull_request`
 
-Creates the pull request with `POST /repos/{owner}/{repo}/pulls` and the
-installation token, so GitHub attributes it to the App bot account. The tool
-neither commits nor pushes: the `head` branch must already exist on the remote.
+Creates a pull request as the App. Parameters: `title` (required), `body`,
+`base`, `head`, `draft`, and `repo`. Defaults come from the working directory,
+the checked-out branch, and the repository default branch.
 
-| Parameter | Meaning |
-|---|---|
-| `title` | Pull-request title; required |
-| `body` | Pull-request description in Markdown |
-| `base` | Branch to merge into; defaults to the repository `default_branch` from `GET /repos/{owner}/{repo}` |
-| `head` | Branch with the changes; defaults to the branch checked out in the working directory |
-| `draft` | Open as a draft |
-| `repo` | `owner/name`; defaults to the `origin` remote of the working directory, accepting https, `ssh://`, `git@host:owner/name`, and GitHub Enterprise hosts |
+The `head` branch must already be pushed; the tool neither commits nor pushes.
+When an open pull request already uses the same `head`, it returns that pull
+request instead of creating a duplicate.
 
-It returns `number`, `url`, `repository`, `head`, `base`, `draft`, `author`, and
-`created`. When an open pull request already uses the same `head`, the tool
-returns that pull request with `created=false` instead of failing, so a retried
-call converges.
+### `refresh_ghapp_token`
 
-Failures carry a structured `message` and an actionable `hint`: 401 points at
-`refresh_ghapp_token`, 403 at installation permissions, 404 at repository or
-branch names outside the installation, and 422 at pushing the `head` branch.
+Refreshes the installation token. Use it when:
 
-Limits: the tool only creates the pull request; it does not push or change a
-remote branch. Draft support depends on the repository settings, and unpushed
-local commits are not part of the pull request.
+- `gh` returns `401` or `Bad credentials`;
+- the state says `missing`, `expired`, or warns that the token is about to
+  expire;
+- a workflow needs a new token immediately.
 
-## Agent commit identity
+A still-valid token returns `token_still_valid` without calling GitHub.
+`force: true` skips the expiry check and replaces a revoked token.
 
-The settings page does not ask for the bot name/email. The plugin uses the
-existing App ID and private key to call:
+### `check_ghapp_token_status`
 
-```text
-GET /app                        → slug
-GET /users/<app-slug>%5Bbot%5D  → id, login
-```
+Reads only the local cache and does not call GitHub. It returns `valid`,
+`expiring`, `expired`, `missing`, `invalid`, or `unconfigured`, plus the expiry,
+remaining lifetime, and token file location.
 
-and derives:
+## Commit identity
+
+The settings page does not ask for the bot name/email. The plugin reads the App
+slug, looks up the matching bot user, and derives the login and user ID, then
+sets:
 
 ```text
-login  = <app-slug>[bot]
-email  = <bot-user-id>+<login>@users.noreply.github.com
-
-GIT_AUTHOR_NAME      = <app-slug>[bot]
-GIT_AUTHOR_EMAIL     = <bot-user-id>+<app-slug>[bot]@users.noreply.github.com
-GIT_COMMITTER_NAME   = <app-slug>[bot]
-GIT_COMMITTER_EMAIL  = <bot-user-id>+<app-slug>[bot]@users.noreply.github.com
+<app-slug>[bot] <bot-user-id>+<app-slug>[bot]@users.noreply.github.com>
 ```
 
-`<app-slug>` and `<bot-user-id>` come from the current App's responses, not from
-plugin settings: the plugin reads the App slug from `GET /app`, then resolves the
-bot login and user id with `GET /users/<app-slug>%5Bbot%5D`. For example, the
-project author's App returns `slug = dsh-agents`, `id = 354391007`, and
-`login = dsh-agents[bot]`. Those three values belong to that App; another App
-yields its own slug, bot user id, and login.
+The values depend on your App. The project author's App uses `dsh-agents` and
+bot user ID `354391007`, giving
+`dsh-agents[bot] <354391007+dsh-agents[bot]@users.noreply.github.com>`; that is
+only an example.
 
-These four variables enter only the Host process environment, where Agent
-bash/pwsh children inherit them. The plugin runs no `git config` and changes no
-repository or global git configuration; the prior values are restored on
-dispose. Commits made in an external terminal are unaffected.
+The identity is injected into Agent child processes only. The plugin does not
+change repository or global git configuration, and commits from an external
+terminal are unaffected.
 
 Limits:
 
-- Local `git commit` is authored/committed by the bot but remains
-  `verified: false`; signing/Verified is not part of this stage.
+- Local commits remain `verified: false`; signing is not supported yet.
 - An Agent that explicitly runs `git commit --author=...` or overrides
-  `GIT_AUTHOR_*` can still bypass the identity.
-- A remote SSH/container git environment inherits these variables only if that
-  environment forwards them.
-- If bot identity resolution fails at startup, the plugin still loads without
-  injecting identity and retries after a successful token refresh.
+  `GIT_AUTHOR_*` can bypass the identity.
+- A remote SSH or container git environment inherits the identity only if that
+  environment forwards it.
 
-## `commit_changes` and the raw-commit guard
+## Usage notes
 
-A system-prompt section tells Agents to use `commit_changes` instead of a raw
-`git commit`.
-
-Tool parameters:
-
-| Parameter | Meaning |
-|---|---|
-| `message` | Commit message; required |
-| `stage` | `all` / `tracked` / `staged`; defaults to `all` |
-| `allow_empty` | Allow an empty commit |
-| `amend` | Amend the current HEAD |
-
-The tool:
-
-1. Reads the user's `user.name` / `user.email` from global git config;
-2. Runs `git add` and `git commit` with the App bot identity;
-3. Appends:
-   ```text
-   Co-authored-by: <user name> <user email>
-   ```
-4. Returns `sha`, `branch`, `author`, `committer`, and `co_author`;
-5. Does not push.
-
-When **Block raw git commit** is enabled, `tools/pre-execute` denies bash/pwsh
-commands that invoke `git commit` and points the Agent at `commit_changes`.
-
-The guard inspects only the shell command text submitted by the model; scripts,
-Git aliases, and indirect loaders can bypass it, so it is not a security
-boundary. Commands such as `git merge`, `git rebase`, and `git cherry-pick`
-are not blocked and still rely on the process-level bot identity.
-
-## Runtime-context snapshot
-
-One fixed-prefix block is injected at the first prompt assembly and again only
-when the state changes:
-
-```text
-[github-app-token] status=valid, expires_at=2026-11-10T23:05:00Z, remaining=28m2s, token_file=…/github-app-token.json
-```
-
-Inside the threshold:
-
-```text
-[github-app-token] status=valid, expires_at=2026-11-10T23:05:00Z, remaining=1m52s, token_file=…/github-app-token.json
-WARN: The github-app-token is about to expire. Use refresh_ghapp_token to refresh it
-```
-
-Missing, expired, invalid, and unconfigured states add one actionable hint
-line. The `remaining` value is the value at the instant the snapshot was
-created; identical text is not re-injected on later steps. The Agent loop's
-runtime-context projection performs the de-duplication, so a long turn does not
-accumulate one status message per step.
-
-## Use the token with gh
-
-After a successful refresh the plugin runs `gh auth login --with-token`, so
-plain `gh` commands use the token. It does not run `gh auth setup-git` and does
-not write the global git `credential.helper`. DSH's shell executor strips
-credential-shaped variables inherited from the Host process, so setting
-`GH_TOKEN` in the Host does not reach bash. The token file remains available as
-a manual fallback:
-
-```sh
-TOKEN_FILE="${DSH_HOME:-$HOME/.dsh}/profiles/web/github-app-token.json"
-GH_TOKEN="$(jq -r .token "$TOKEN_FILE")" gh pr list
-```
-
-PowerShell:
-
-```powershell
-$token = (Get-Content "$env:DSH_HOME\profiles\web\github-app-token.json" | ConvertFrom-Json).token
-$env:GH_TOKEN = $token
-gh pr list
-```
-
-The snapshot includes `token_file`, so the Agent can locate the file without
-guessing the profile path. If a deployment already has a `gh` wrapper that
-reads this file, that wrapper can use the file directly and needs no command
-change.
-
-## Concurrency and security
-
-- Every refresh runs under `<tokenPath>.lock`; a second caller waits, re-reads
-  the token, and returns without a duplicate exchange when the first caller
-  already refreshed it.
-- The token file is replaced atomically through a same-directory temporary
-  file and `rename`.
-- The token file is created with owner-only permissions (`0600`). On Windows
-  the mode is best-effort, as with the rest of DSH's file stores.
-- An abandoned lock is reclaimed after two minutes; a normal lock wait is
-  bounded to ten seconds and honors tool cancellation.
-- No token, JWT, or private-key material is returned to the model. GitHub error
-  bodies are truncated before they become tool output.
-- `configureGh: true` runs `gh auth login --with-token`, which writes only gh's
-  shared credential store; global git settings are untouched. Set it to `false`
-  to avoid that side effect and set `GH_TOKEN` from the token file manually.
-- Older builds ran `gh auth setup-git` and may have left a global
-  `credential.https://github.com.helper`; remove it once with
-  `git config --global --unset-all credential.https://github.com.helper`.
-
-## Non-goals
-
-- No daemon, timer, watchdog, or scheduled refresh loop.
-- No dependency on a long-lived session or background job.
-- No interception or wrapping of `gh`.
-- No multi-App or multi-installation routing; one plugin instance manages one
-  installation.
+- After a refresh, the plugin runs `gh auth login --with-token`, so plain `gh`
+  commands use the token.
+- The token state appears in conversation context as `[github-app-token] ...`;
+  when it shows expired or expiring, ask the Agent to refresh.
+- The token is cached by default in the profile's `github-app-token.json`; read
+  that file when you need the token manually.
+- Private keys, JWTs, and tokens never reach the model; the token file is
+  owner-only where the platform supports it.
+- The plugin runs no background tasks; it contacts GitHub only when an Agent
+  calls a tool.
 
 ## Development
 
