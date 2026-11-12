@@ -152,18 +152,23 @@ refs:
 设置页不需要填写 bot 的 name/email。插件用现有 App ID 和私钥调用：
 
 ```text
-GET /app                         → slug = dsh-agents
-GET /users/dsh-agents%5Bbot%5D  → id = 354391007, login = dsh-agents[bot]
+GET /app                        → slug
+GET /users/<app-slug>%5Bbot%5D  → id, login
 ```
 
 并推导：
 
 ```text
-GIT_AUTHOR_NAME      = dsh-agents[bot]
-GIT_AUTHOR_EMAIL     = 354391007+dsh-agents[bot]@users.noreply.github.com
-GIT_COMMITTER_NAME   = dsh-agents[bot]
-GIT_COMMITTER_EMAIL  = 354391007+dsh-agents[bot]@users.noreply.github.com
+login  = <app-slug>[bot]
+email  = <bot-user-id>+<login>@users.noreply.github.com
+
+GIT_AUTHOR_NAME      = <app-slug>[bot]
+GIT_AUTHOR_EMAIL     = <bot-user-id>+<app-slug>[bot]@users.noreply.github.com
+GIT_COMMITTER_NAME   = <app-slug>[bot]
+GIT_COMMITTER_EMAIL  = <bot-user-id>+<app-slug>[bot]@users.noreply.github.com
 ```
+
+`<app-slug>` 和 `<bot-user-id>` 来自当前 App 的响应，不是插件配置项：插件先从 `GET /app` 取得 App slug，再用 `GET /users/<app-slug>%5Bbot%5D` 解析 bot 的 login 和用户 ID。作为示例，项目作者的 App 返回 `slug = dsh-agents`、`id = 354391007`、`login = dsh-agents[bot]`；`dsh-agents` 和 `354391007` 只是该 App 的实际值，其他 App 会得到各自的 slug、bot 用户 ID 和 login。
 
 这四个变量只写入 Host 进程环境，由 Agent 的 bash/pwsh 子进程继承；插件不会执行 `git config`，也不会改仓库或全局 git 配置，dispose 时恢复原值。因此用户在外部终端的提交不受影响。
 

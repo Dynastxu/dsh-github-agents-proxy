@@ -227,18 +227,28 @@ The settings page does not ask for the bot name/email. The plugin uses the
 existing App ID and private key to call:
 
 ```text
-GET /app                         → slug = dsh-agents
-GET /users/dsh-agents%5Bbot%5D  → id = 354391007, login = dsh-agents[bot]
+GET /app                        → slug
+GET /users/<app-slug>%5Bbot%5D  → id, login
 ```
 
 and derives:
 
 ```text
-GIT_AUTHOR_NAME      = dsh-agents[bot]
-GIT_AUTHOR_EMAIL     = 354391007+dsh-agents[bot]@users.noreply.github.com
-GIT_COMMITTER_NAME   = dsh-agents[bot]
-GIT_COMMITTER_EMAIL  = 354391007+dsh-agents[bot]@users.noreply.github.com
+login  = <app-slug>[bot]
+email  = <bot-user-id>+<login>@users.noreply.github.com
+
+GIT_AUTHOR_NAME      = <app-slug>[bot]
+GIT_AUTHOR_EMAIL     = <bot-user-id>+<app-slug>[bot]@users.noreply.github.com
+GIT_COMMITTER_NAME   = <app-slug>[bot]
+GIT_COMMITTER_EMAIL  = <bot-user-id>+<app-slug>[bot]@users.noreply.github.com
 ```
+
+`<app-slug>` and `<bot-user-id>` come from the current App's responses, not from
+plugin settings: the plugin reads the App slug from `GET /app`, then resolves the
+bot login and user id with `GET /users/<app-slug>%5Bbot%5D`. For example, the
+project author's App returns `slug = dsh-agents`, `id = 354391007`, and
+`login = dsh-agents[bot]`. Those three values belong to that App; another App
+yields its own slug, bot user id, and login.
 
 These four variables enter only the Host process environment, where Agent
 bash/pwsh children inherit them. The plugin runs no `git config` and changes no
