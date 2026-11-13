@@ -4,13 +4,13 @@ on:
     tags: ['v*']
 
 jobs:
-  publish:
-    name: Publish
+  publish-npm:
+    name: Publish to npm
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-      packages: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -25,9 +25,33 @@ jobs:
         run: pnpm ci
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: pnpm publish --access public --no-git-checks
+
+  publish-gpr:
+    name: Publish to Github Packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com/
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm ci
 
       - name: Publish to Github Packages
-        run: npm publish --registry https://npm.pkg.github.com/ --access public
+        run: pnpm publish --access public --no-git-checks
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
