@@ -17,7 +17,7 @@ import {
 } from './draft.ts'
 import { readHostPathBridge, type HostPathBridge } from './file-picker.ts'
 import { en, NS, zh, type CopyKey, type Translate } from './locales.ts'
-import { describeTokenStatus, useTokenStatus, type TokenStatus } from './status.ts'
+import { describeTokenStatus, settingsTitle, useTokenStatus, type TokenStatus } from './status.ts'
 import { CSS, STYLE_MARKER } from './styles.ts'
 
 /** Pause after the last edit before the draft is written. */
@@ -195,6 +195,8 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
   const [statusRevision, setStatusRevision] = useState(0)
   const status = useTokenStatus(statusRevision)
   const avatarUrl = status.report?.app_avatar_url
+  const genericTitle = t('title')
+  const title = settingsTitle(status, genericTitle)
   const [failedAvatar, setFailedAvatar] = useState<string | undefined>(undefined)
   /** Counts local edits so an in-flight save cannot discard a newer draft. */
   const editVersion = useRef(0)
@@ -302,7 +304,7 @@ function SettingsSection({ t, form }: SettingsSectionProps): ReactNode {
               onError={() => { setFailedAvatar(avatarUrl) }} />}
         </span>
         <div className="ghapp-identity-copy">
-          <span className="ghapp-name">{t('title')}</span>
+          <span className="ghapp-name" title={title === genericTitle ? undefined : title}>{title}</span>
           <TokenStatusLine status={status} t={t} />
         </div>
         <div className="ghapp-identity-actions">

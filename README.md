@@ -27,7 +27,7 @@ dsh plugin --profile <profile> add @dynastxu/dsh-github-agents-proxy
 
 ## 配置
 
-设置页提供全部选项，并实时显示缓存令牌的状态：已激活、即将过期、已过期等。私钥可以用文件路径、DSH 凭据引用，或在 Desktop 中用文件夹按钮选择 PEM 文件。
+设置页提供全部选项，并实时显示缓存令牌的状态：已激活、即将过期、已过期等。页头显示从 GitHub 读取的 App 名称与头像；读取失败时回退为「GitHub App 令牌」。私钥可以用文件路径、DSH 凭据引用，或在 Desktop 中用文件夹按钮选择 PEM 文件。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|

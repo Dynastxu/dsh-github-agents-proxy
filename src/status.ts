@@ -9,30 +9,32 @@
  * @module @dynastxu/dsh-github-agents-proxy/status
  */
 
-import type { TokenStatusResponse } from './status-contract.ts'
+import type { AppIdentity, TokenStatusResponse } from './status-contract.ts'
 import { resolveManager, tokenReport, type TokenManagerSource } from './tools.ts'
 
 /**
  * Answer one live-status request.
  *
- * The App avatar comes from the identity the plugin already resolved at load
- * or after a refresh; this route never asks GitHub for it.
+ * The App name and avatar come from the identity the plugin already resolved at
+ * load or after a refresh; this route never asks GitHub for them.
  * @param source - token manager owner shared with the tools and settings form.
  * @param now - Host clock in epoch milliseconds.
- * @param appAvatarUrl - avatar of the resolved App bot, undefined until the Host resolves it.
+ * @param appIdentity - identity of the resolved App bot, undefined until the Host resolves it.
  * @returns an uncached JSON response carrying the current token facts.
  */
 export async function serveTokenStatus(
   source: TokenManagerSource,
   now: () => number = Date.now,
-  appAvatarUrl: () => string | undefined = () => undefined,
+  appIdentity: () => AppIdentity | undefined = () => undefined,
 ): Promise<Response> {
   const snapshot = await resolveManager(source).checkFromDisk()
-  const avatar = appAvatarUrl()
+  const identity = appIdentity()
+  const avatar = identity?.avatarUrl ?? ''
   const body: TokenStatusResponse = {
     ...tokenReport(snapshot),
     server_time: new Date(now()).toISOString(),
-    ...(avatar === undefined || avatar === '' ? {} : { app_avatar_url: avatar }),
+    ...(identity === undefined ? {} : { app_name: identity.appName }),
+    ...(avatar === '' ? {} : { app_avatar_url: avatar }),
   }
   return new Response(JSON.stringify(body), {
     status: 200,

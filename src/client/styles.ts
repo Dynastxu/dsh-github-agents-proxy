@@ -46,6 +46,7 @@ export const CSS = `
   object-fit: cover;
 }
 .ghapp-identity-copy {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -64,6 +65,9 @@ export const CSS = `
   text-align: right;
 }
 .ghapp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 500;
   line-height: 22px;

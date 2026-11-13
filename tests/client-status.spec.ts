@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { zh, type Translate } from '../src/client/locales.ts'
-import { describeTokenStatus, remainingSeconds, type TokenStatus } from '../src/client/status.ts'
+import { describeTokenStatus, remainingSeconds, settingsTitle, type TokenStatus } from '../src/client/status.ts'
 import type { TokenStatusResponse } from '../src/status-contract.ts'
 
 const t: Translate = key => zh[key]
@@ -22,6 +22,19 @@ function view(report: TokenStatusResponse, nowMs = Date.parse(report.server_time
 function reportOf(overrides: Partial<TokenStatusResponse>): TokenStatusResponse {
   return { ...REPORT, ...overrides }
 }
+
+describe('settings page title', () => {
+  it('uses the App name the Host resolved', () => {
+    expect(settingsTitle(view(reportOf({ app_name: 'DSH Agents' })), zh.title)).toBe('DSH Agents')
+  })
+
+  it('falls back to the generic label while no App name is available', () => {
+    expect(settingsTitle(view(REPORT), zh.title)).toBe(zh.title)
+    expect(settingsTitle(view(reportOf({ app_name: '' })), zh.title)).toBe(zh.title)
+    expect(settingsTitle({ phase: 'loading', offsetMs: 0, nowMs: 0 }, zh.title)).toBe(zh.title)
+    expect(settingsTitle({ phase: 'error', offsetMs: 0, nowMs: 0 }, zh.title)).toBe(zh.title)
+  })
+})
 
 describe('live token status presentation', () => {
   it('shows a checking badge until the first answer arrives', () => {

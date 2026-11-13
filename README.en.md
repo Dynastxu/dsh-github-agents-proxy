@@ -40,9 +40,10 @@ The settings page saves automatically.
 ## Configuration
 
 The settings page exposes every option and shows the cached token state live:
-active, expiring, expired, and so on. The private key can come from a file path,
-a DSH credential reference, or, in the Desktop app, the folder button that picks
-the PEM file.
+active, expiring, expired, and so on. Its header shows the App name and avatar
+read from GitHub, falling back to “GitHub App token” when that lookup fails. The
+private key can come from a file path, a DSH credential reference, or, in the
+Desktop app, the folder button that picks the PEM file.
 
 | Field | Default | Meaning |
 |---|---|---|
