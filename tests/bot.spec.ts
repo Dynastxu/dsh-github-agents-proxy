@@ -19,11 +19,30 @@ describe('GitHub App bot identity', () => {
     try {
       const identity = await resolveBotIdentity(fixture.config, { fetch: botFetch(), now: () => Date.now() }, abortSignal())
       expect(identity).toEqual({
+        appName: 'DSH Agents',
         login: 'dsh-agents[bot]',
         email: '354391007+dsh-agents[bot]@users.noreply.github.com',
         userId: 354391007,
         appSlug: 'dsh-agents',
       })
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('falls back to the App slug when the App response omits a name', async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith('/app')) return jsonResponse({ id: 5678739, slug: 'dsh-agents' })
+      if (url.endsWith('/users/dsh-agents%5Bbot%5D')) {
+        return jsonResponse({ id: 354391007, login: 'dsh-agents[bot]', type: 'Bot' })
+      }
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    const fixture = await createFixture()
+    try {
+      const identity = await resolveBotIdentity(fixture.config, { fetch: fetchImpl, now: () => Date.now() }, abortSignal())
+      expect(identity.appName).toBe('dsh-agents')
     } finally {
       await fixture.cleanup()
     }
@@ -104,6 +123,7 @@ describe('GitHub App bot identity', () => {
         email: '354391007+dsh-agents[bot]@users.noreply.github.com',
         userId: 354391007,
         appSlug: 'dsh-agents',
+        appName: 'dsh-agents',
       })
       expect(process.env.GIT_AUTHOR_NAME).toBe('dsh-agents[bot]')
       expect(process.env.GIT_COMMITTER_EMAIL).toBe('354391007+dsh-agents[bot]@users.noreply.github.com')

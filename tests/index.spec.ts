@@ -98,6 +98,15 @@ describe('github-agents-proxy plugin', () => {
   it('loads a configured installation and reports a missing cached token', async () => {
     const fixture = await createFixture()
     const fake = fakeContext()
+    const routes = new Map<string, { readonly fetch: (request: Request) => Promise<Response> }>()
+    fake.ctx.provide('connection', {
+      fetch: {
+        register(route: { readonly path: string; readonly fetch: (request: Request) => Promise<Response> }) {
+          routes.set(route.path, route)
+          return async () => { routes.delete(route.path) }
+        },
+      },
+    })
     const previousName = process.env.GIT_AUTHOR_NAME
     vi.stubGlobal('fetch', async (input: string | URL | Request) => {
       const url = String(input)
@@ -117,6 +126,10 @@ describe('github-agents-proxy plugin', () => {
 
       expect(process.env.GIT_AUTHOR_NAME).toBe('dsh-agents[bot]')
       expect(process.env.GIT_COMMITTER_EMAIL).toBe('354391007+dsh-agents[bot]@users.noreply.github.com')
+      const route = routes.get(plugin.TOKEN_STATUS_ROUTE)
+      expect(route).toBeDefined()
+      const body = await (await route!.fetch(new Request(`http://host${plugin.TOKEN_STATUS_ROUTE}`))).json() as { readonly app_name?: string }
+      expect(body.app_name).toBe('dsh-agents')
       const refresh = fake.tools.get('refresh_ghapp_token') as unknown as { name: string }
       expect(refresh.name).toBe('refresh_ghapp_token')
     } finally {

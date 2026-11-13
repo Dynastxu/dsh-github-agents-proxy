@@ -62,6 +62,7 @@ function isStatusBody(value: unknown): value is TokenStatusResponse {
     && typeof record.server_time === 'string'
     && Number.isFinite(Date.parse(record.server_time))
     && (record.app_avatar_url === undefined || typeof record.app_avatar_url === 'string')
+    && (record.app_name === undefined || typeof record.app_name === 'string')
 }
 
 /**
@@ -161,6 +162,21 @@ export function remainingSeconds(
 
 function fill(template: string, value: string): string {
   return template.split('{0}').join(value)
+}
+
+/**
+ * Settings-page title: the App name the Host resolved, or the generic label
+ * while no name is available.
+ *
+ * The generic label covers both a pending lookup and a failed one, so the
+ * header never shows an invented name.
+ * @param status - polled status, including any reported App name.
+ * @param fallback - localized generic label.
+ * @returns the title text to show beside the token status.
+ */
+export function settingsTitle(status: TokenStatus, fallback: string): string {
+  const name = status.report?.app_name
+  return name === undefined || name === '' ? fallback : name
 }
 
 function instantLabel(iso: string): string {

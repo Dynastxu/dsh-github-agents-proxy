@@ -51,7 +51,7 @@ export { formatTokenSnapshot, GitHubAppTokenManager, hintForState, readPrivateKe
 export type { PullRequestArgs, PullRequestFailure, PullRequestResult, PullRequestRuntime, PullRequestSuccess, RepositoryRef, CreatePullRequestRequest } from './pull-request.ts'
 export { createPullRequest, createPullRequestTool, parseRepository, parseRepositoryFromRemote } from './pull-request.ts'
 export { TOKEN_STATUS_ROUTE } from './status-contract.ts'
-export type { TokenStatusResponse } from './status-contract.ts'
+export type { AppIdentity, TokenStatusResponse } from './status-contract.ts'
 export { serveTokenStatus } from './status.ts'
 export type { RefreshFailed, RefreshNotConfigured, RefreshResult, RefreshStillValid, RefreshSuccess, StatusResult, StoredToken, TokenAccess, TokenReport, TokenSnapshot, TokenState } from './types.ts'
 export type { ContentBlock, TokenManagerSource, ToolDefinition, ToolRunContext, ToolsRegistry } from './tools.ts'
@@ -256,7 +256,7 @@ export async function apply(ctx: Context, config: ConfigInput = {}): Promise<voi
         path: TOKEN_STATUS_ROUTE,
         methods: ['GET'],
         requestBody: 'buffered',
-        fetch: () => serveTokenStatus(source, Date.now, () => currentBotIdentity?.avatarUrl),
+        fetch: () => serveTokenStatus(source, Date.now, () => currentBotIdentity),
       })
       return () => { void dispose() }
     }, 'github-agents-proxy: token status route')

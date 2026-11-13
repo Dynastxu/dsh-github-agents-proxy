@@ -47,17 +47,47 @@ describe('live token status route', () => {
     }
   })
 
-  it('adds the resolved App owner avatar without asking GitHub', async () => {
+  it('adds the resolved App identity without asking GitHub', async () => {
     const fixture = await createFixture()
     try {
       const manager = await configuredManager(fixture, NOW)
       const response = await serveTokenStatus(
         { current: () => manager },
         () => NOW,
-        () => 'https://avatars.githubusercontent.com/u/151742029?v=4',
+        () => ({ appName: 'DSH Agents', avatarUrl: 'https://avatars.githubusercontent.com/u/151742029?v=4' }),
       )
       const body = await response.json() as TokenStatusResponse
+      expect(body.app_name).toBe('DSH Agents')
       expect(body.app_avatar_url).toBe('https://avatars.githubusercontent.com/u/151742029?v=4')
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('adds the App name without an avatar when GitHub reported none', async () => {
+    const fixture = await createFixture()
+    try {
+      const manager = await configuredManager(fixture, NOW)
+      const response = await serveTokenStatus(
+        { current: () => manager },
+        () => NOW,
+        () => ({ appName: 'DSH Agents' }),
+      )
+      const body = await response.json() as TokenStatusResponse
+      expect(body.app_name).toBe('DSH Agents')
+      expect(body.app_avatar_url).toBeUndefined()
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('omits the App identity until the Host resolves it', async () => {
+    const fixture = await createFixture()
+    try {
+      const manager = await configuredManager(fixture, NOW)
+      const body = await bodyOf(manager, NOW)
+      expect(body.app_name).toBeUndefined()
+      expect(body.app_avatar_url).toBeUndefined()
     } finally {
       await fixture.cleanup()
     }

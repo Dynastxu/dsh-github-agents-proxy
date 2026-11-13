@@ -14,6 +14,8 @@ import type { ResolvedConfig } from './config.ts'
 
 /** Git identity of one GitHub App's bot user. */
 export interface BotIdentity {
+  /** App name as shown in GitHub settings, for example `DSH Agents`. */
+  readonly appName: string
   /** Bot login, for example `dsh-agents[bot]`. */
   readonly login: string
   /** GitHub noreply address linked to the bot user. */
@@ -82,9 +84,11 @@ async function getJson(
 }
 
 /**
- * Resolve the App bot's numeric user id, login, and noreply email.
+ * Resolve the App name and the bot's numeric user id, login, and noreply email.
  *
- * `GET /app` needs the App JWT; `GET /users/<slug>[bot]` is public.
+ * `GET /app` needs the App JWT; `GET /users/<slug>[bot]` is public. The App
+ * name falls back to the slug when GitHub omits it, so a resolved identity
+ * always carries a display name.
  * @param config - resolved App configuration.
  * @param options - transport, clock, and credential overrides.
  * @param signal - caller cancellation.
@@ -109,6 +113,8 @@ export async function resolveBotIdentity(
     throw new Error('GitHub App response omitted the App slug')
   }
   const slug = app.slug.trim()
+  const named = typeof app.name === 'string' ? app.name.trim() : ''
+  const appName = named === '' ? slug : named
   const login = `${slug}[bot]`
   const owner = isRecord(app.owner) ? app.owner : undefined
   const ownerAvatarUrl = owner !== undefined && typeof owner.avatar_url === 'string'
@@ -127,6 +133,7 @@ export async function resolveBotIdentity(
   const userAvatarUrl = typeof user.avatar_url === 'string' ? user.avatar_url.trim() : ''
   const avatarUrl = userAvatarUrl === '' ? ownerAvatarUrl : userAvatarUrl
   return {
+    appName,
     login: user.login,
     email: `${user.id}+${user.login}@users.noreply.github.com`,
     userId: user.id,
